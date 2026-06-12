@@ -38,10 +38,11 @@ return bot.SendText(context.Background(), "hello", msgbot.WithAtAll())
 | `msgbot.NewMulti` | 并发广播到多个 Provider |
 | `feishu.New` | 创建飞书 Webhook Provider |
 | `feishu.GetAccessToken` | 获取飞书自建应用 token |
+| `*.GetAccessTokenCached` | 带缓存获取 token（三平台同形态） |
+| `*.NewMemoryTokenCache` | 进程内默认 token 缓存（三平台同形态） |
 | `feishu.NewApp` | 创建飞书自建应用消息客户端 |
 | `wecom.New` | 创建企业微信 Webhook Provider |
 | `dingtalk.New` | 创建钉钉 Webhook Provider |
-| `ginews.Middleware` | 将 Manager 注入 Gin context |
 
 ## 飞书
 
@@ -70,7 +71,7 @@ err = app.SendImageMessage(ctx, "ou_xxx", "/path/to/image.png")
 err = token.DownloadImage(ctx, "img_xxx", "/path/to/save.png")
 ```
 
-调用方应按 `token.Expire` 缓存 access token。
+建议使用 `feishu.GetAccessTokenCached` 自动缓存 token，见下文 [Access Token 缓存](#access-token-缓存)。
 
 ## 企业微信
 
@@ -99,6 +100,27 @@ dt.SendActionCard(ctx, &dingtalk.ActionCard{
 })
 ```
 
+## Access Token 缓存
+
+三平台的 `GetAccessToken` 均为无状态直连请求，token 有效期约 7200 秒（企业微信对 gettoken 有频率限制）。`GetAccessTokenCached` 提供带缓存的获取：缓存命中直接返回；未命中请求平台 API，按有效期算好 TTL（提前 300 秒）回写缓存；同凭证并发未命中时只发一次上游请求（防冷启动击穿）。
+
+```go
+// 单进程：内存缓存开箱即用（包级创建一份，重复使用）
+var tokenCache = feishu.NewMemoryTokenCache()
+
+token, err := feishu.GetAccessTokenCached(ctx, "cli_xxx", "secret_xxx", tokenCache)
+```
+
+企业微信、钉钉形态完全一致：`wecom.GetAccessTokenCached(ctx, corpID, corpSecret, cache)`、`dingtalk.GetAccessTokenCached(ctx, appKey, appSecret, cache)`。
+
+多实例部署需要共享 token 时，实现各包的 `TokenCache` 接口（`Get`/`Set` 两个方法）接入 Redis，完整示例见 `feishu.TokenCache` 的文档注释。
+
+注意事项：
+
+- **一个 `TokenCache` 实例只能服务一组凭证**，多个 app/企业各自创建实例，Redis 实现应在构造时绑定唯一 key；
+- 缓存后端故障会自动降级为直连获取，不阻断调用；错误被静默忽略，需要观测时在自定义 `TokenCache` 实现内记录；
+- `cache` 传 `nil` 等价于 `GetAccessToken`（不持久缓存，但仍保留并发去重）。
+
 ## 多平台广播
 
 ```go
@@ -106,19 +128,22 @@ multi, _ := msgbot.NewMulti(fs, wc, dt)
 err := multi.SendText(ctx, "全平台通知", msgbot.WithAtAll())
 ```
 
-## Gin 集成
+## Web 框架集成
+
+`msgbot` 不依赖任何 Web 框架。在 Gin 等框架中使用时，通过闭包注入 Manager 即可：
 
 ```go
+func alertHandler(mgr *msgbot.Manager) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        _ = mgr.Default().SendText(c.Request.Context(), "告警")
+        c.JSON(200, gin.H{"status": "ok"})
+    }
+}
+
 mgr := msgbot.NewManager(fs, wc, dt)
 
 r := gin.Default()
-r.Use(ginews.Middleware(mgr))
-
-r.POST("/alert", func(c *gin.Context) {
-    mgr := ginews.MustFrom(c)
-    _ = mgr.Default().SendText(c.Request.Context(), "告警")
-    c.JSON(200, gin.H{"status": "ok"})
-})
+r.POST("/alert", alertHandler(mgr))
 ```
 
 ## 从 `github.com/gtkit/news/v2` 迁移
@@ -129,7 +154,7 @@ r.POST("/alert", func(c *gin.Context) {
 | `github.com/gtkit/news/v2/feishu` | `github.com/gtkit/msgbot/feishu` |
 | `github.com/gtkit/news/v2/wecom` | `github.com/gtkit/msgbot/wecom` |
 | `github.com/gtkit/news/v2/dingtalk` | `github.com/gtkit/msgbot/dingtalk` |
-| `github.com/gtkit/news/v2/ginews` | `github.com/gtkit/msgbot/ginews` |
+| `github.com/gtkit/news/v2/ginews` | 已移除，改用闭包注入（见「Web 框架集成」） |
 
 `msgbot` 作为新模块 v1 发布，module path 不带 `/v2`。
 
