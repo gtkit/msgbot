@@ -10,8 +10,6 @@ import (
 	"os"
 	"path/filepath"
 
-	json "github.com/gtkit/json/v2"
-
 	"github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
 )
@@ -123,7 +121,7 @@ func UploadImageFromReader(ctx context.Context, tenantAccessToken, filename stri
 	}
 
 	var uploadResp UploadImageResp
-	if err := json.Unmarshal(data, &uploadResp); err != nil {
+	if err := internal.Unmarshal(data, &uploadResp); err != nil {
 		return nil, msgbot.DecodeError(msgbot.PlatformFeishu, "UploadImage", "decode upload response", err)
 	}
 

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"net/http"
 
-	json "github.com/gtkit/json/v2"
-
 	"github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
 )
@@ -105,7 +103,7 @@ func (a *App) SendTextMessage(ctx context.Context, openID, text string) error {
 		return err
 	}
 
-	content, err := json.Marshal(map[string]string{"text": text})
+	content, err := internal.Marshal(map[string]string{"text": text})
 	if err != nil {
 		return fmt.Errorf("feishu: marshal text content: %w", err)
 	}
@@ -138,7 +136,7 @@ func (a *App) SendImageMessage(ctx context.Context, openID, path string) error {
 		return fmt.Errorf("feishu: upload image: %w", err)
 	}
 
-	content, err := json.Marshal(map[string]string{"image_key": resp.ImageKey()})
+	content, err := internal.Marshal(map[string]string{"image_key": resp.ImageKey()})
 	if err != nil {
 		return fmt.Errorf("feishu: marshal image content: %w", err)
 	}
@@ -152,7 +150,7 @@ func (a *App) SendImageMessage(ctx context.Context, openID, path string) error {
 
 // send 使用给定的 token 进行鉴权，POST 一个消息 payload。
 func (a *App) send(ctx context.Context, token *AccessToken, payload map[string]any) error {
-	body, err := json.Marshal(payload)
+	body, err := internal.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("feishu: marshal message: %w", err)
 	}
@@ -176,7 +174,7 @@ func (a *App) send(ctx context.Context, token *AccessToken, payload map[string]a
 	}
 
 	var respInfo appMessageResp
-	if err := json.Unmarshal(data, &respInfo); err != nil {
+	if err := internal.Unmarshal(data, &respInfo); err != nil {
 		return msgbot.DecodeError(msgbot.PlatformFeishu, "App.Send", "decode message response", err)
 	}
 	if respInfo.Code != 0 {

@@ -3,14 +3,13 @@ package feishu
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
-
-	json "github.com/gtkit/json/v2"
 
 	"github.com/gtkit/msgbot"
 )

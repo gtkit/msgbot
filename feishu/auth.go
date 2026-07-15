@@ -7,8 +7,6 @@ import (
 	"net/url"
 	"os"
 
-	json "github.com/gtkit/json/v2"
-
 	"github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
 )
@@ -43,7 +41,7 @@ func GetAccessToken(ctx context.Context, appID, appSecret string, client ...*htt
 		return nil, fmt.Errorf("feishu: app_id and app_secret are required")
 	}
 
-	payload, err := json.Marshal(map[string]string{
+	payload, err := internal.Marshal(map[string]string{
 		"app_id":     appID,
 		"app_secret": appSecret,
 	})
@@ -59,7 +57,7 @@ func GetAccessToken(ctx context.Context, appID, appSecret string, client ...*htt
 	}
 
 	var resp accessTokenResp
-	if err := json.Unmarshal(data, &resp); err != nil {
+	if err := internal.Unmarshal(data, &resp); err != nil {
 		return nil, msgbot.DecodeError(msgbot.PlatformFeishu, "GetAccessToken", "decode token response", err)
 	}
 

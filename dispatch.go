@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 
-	json "github.com/gtkit/json/v2"
-
 	"github.com/gtkit/msgbot/internal"
 )
 
@@ -44,7 +42,7 @@ func (c *Config) Send(ctx context.Context, stats *Stats, platform Platform, op s
 			return &Error{Platform: platform, Operation: op, Kind: KindValidation, Message: err.Error(), Err: err}
 		}
 
-		body, err := json.Marshal(payload)
+		body, err := internal.Marshal(payload)
 		if err != nil {
 			return &Error{Platform: platform, Operation: op, Kind: KindValidation, Message: "marshal payload", Err: err}
 		}
@@ -59,7 +57,7 @@ func (c *Config) Send(ctx context.Context, stats *Stats, platform Platform, op s
 		}
 
 		var resp Response
-		if err := json.Unmarshal(data, &resp); err != nil {
+		if err := internal.Unmarshal(data, &resp); err != nil {
 			c.LogError(ctx, string(platform)+": decode response failed", "error", err)
 			return &Error{Platform: platform, Operation: op, Kind: KindDecode, Message: "decode response", Err: err}
 		}

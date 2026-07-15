@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"net/url"
 
-	json "github.com/gtkit/json/v2"
-
 	"github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
 )
@@ -67,7 +65,7 @@ func GetAccessToken(ctx context.Context, corpID, corpSecret string, client ...*h
 	}
 
 	var result accessTokenResp
-	if err := json.Unmarshal(data, &result); err != nil {
+	if err := internal.Unmarshal(data, &result); err != nil {
 		return nil, msgbot.DecodeError(msgbot.PlatformWeCom, "GetAccessToken", "decode token response", err)
 	}
 
