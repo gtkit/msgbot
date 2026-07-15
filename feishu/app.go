@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	json "github.com/gtkit/json/v2"
+	"github.com/gtkit/msgbot/internal"
 )
 
 const (
@@ -105,7 +106,7 @@ func (a *App) send(ctx context.Context, payload map[string]any) error {
 
 	httpResp, err := a.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("feishu: send message: %w", err)
+		return fmt.Errorf("feishu: send message: %w", internal.SanitizeRequestError(err))
 	}
 	defer func() { _ = httpResp.Body.Close() }()
 

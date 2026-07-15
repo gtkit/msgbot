@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	json "github.com/gtkit/json/v2"
-	"io"
 	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/gtkit/msgbot/internal"
@@ -67,6 +67,9 @@ func GetAccessToken(ctx context.Context, appID, appSecret string, client ...*htt
 	if resp.Code != 0 {
 		return nil, fmt.Errorf("feishu: get access token: code=%d, msg=%s", resp.Code, resp.Msg)
 	}
+	if resp.TenantAccessToken == "" {
+		return nil, fmt.Errorf("feishu: get access token: tenant_access_token is empty")
+	}
 
 	return &AccessToken{
 		AppAccessToken:    resp.AppAccessToken,
@@ -96,8 +99,14 @@ func (t *AccessToken) DownloadImage(ctx context.Context, imageKey, savePath stri
 	if t.TenantAccessToken == "" {
 		return fmt.Errorf("feishu: tenant access token is empty")
 	}
+	if imageKey == "" {
+		return fmt.Errorf("feishu: image key is required")
+	}
+	if savePath == "" {
+		return fmt.Errorf("feishu: save path is required")
+	}
 
-	api := "https://open.feishu.cn/open-apis/im/v1/images/" + imageKey
+	api := "https://open.feishu.cn/open-apis/im/v1/images/" + url.PathEscape(imageKey)
 
 	httpClient := http.DefaultClient
 	if len(client) > 0 && client[0] != nil {
@@ -112,18 +121,13 @@ func (t *AccessToken) DownloadImage(ctx context.Context, imageKey, savePath stri
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("feishu: download request: %w", err)
+		return fmt.Errorf("feishu: download request: %w", internal.SanitizeRequestError(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("feishu: download unexpected status %d", resp.StatusCode)
-	}
-
-	const maxImage = 10 << 20
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxImage))
+	data, err := internal.ReadResponse(resp, 10<<20)
 	if err != nil {
-		return fmt.Errorf("feishu: read image data: %w", err)
+		return fmt.Errorf("feishu: download image: %w", err)
 	}
 
 	if err := os.WriteFile(savePath, data, 0o644); err != nil {

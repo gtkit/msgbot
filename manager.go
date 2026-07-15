@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"sync/atomic"
 )
@@ -21,7 +22,14 @@ func NewMulti(providers ...Provider) (*Multi, error) {
 	if len(providers) == 0 {
 		return nil, fmt.Errorf("msgbot: at least one provider is required")
 	}
-	return &Multi{providers: providers}, nil
+	snapshot := make([]Provider, len(providers))
+	for i, provider := range providers {
+		if isNilProvider(provider) {
+			return nil, fmt.Errorf("msgbot: provider at index %d is nil", i)
+		}
+		snapshot[i] = provider
+	}
+	return &Multi{providers: snapshot}, nil
 }
 
 // SendText broadcasts a text message to all providers concurrently.
@@ -93,10 +101,14 @@ func NewManager(providers ...Provider) *Manager {
 	m := &Manager{
 		providers: make(map[Platform]Provider, len(providers)),
 	}
-	for i, p := range providers {
-		m.providers[p.Platform()] = p
-		if i == 0 {
-			m.defaults.Store(p.Platform())
+	for _, provider := range providers {
+		if isNilProvider(provider) {
+			continue
+		}
+		platform := provider.Platform()
+		m.providers[platform] = provider
+		if m.defaults.Load() == nil {
+			m.defaults.Store(platform)
 		}
 	}
 	return m
@@ -139,4 +151,17 @@ func (m *Manager) All() []Provider {
 // Multi creates a Multi dispatcher from all registered providers.
 func (m *Manager) Multi() (*Multi, error) {
 	return NewMulti(m.All()...)
+}
+
+func isNilProvider(provider Provider) bool {
+	if provider == nil {
+		return true
+	}
+	value := reflect.ValueOf(provider)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }

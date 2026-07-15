@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	json "github.com/gtkit/json/v2"
-	"net/url"
 
 	news "github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
@@ -30,7 +29,7 @@ func New(cfg news.Config) (*Webhook, error) {
 	if cfg.WebhookURL == "" {
 		return nil, fmt.Errorf("wecom: webhook URL is required")
 	}
-	if _, err := url.ParseRequestURI(cfg.WebhookURL); err != nil {
+	if err := internal.ValidateHTTPURL(cfg.WebhookURL); err != nil {
 		return nil, fmt.Errorf("wecom: invalid webhook URL: %w", err)
 	}
 	cfg.Freeze()
@@ -114,7 +113,7 @@ func (w *Webhook) send(ctx context.Context, payload map[string]any) error {
 		return fmt.Errorf("wecom: marshal payload: %w", err)
 	}
 
-	w.cfg.LogDebug(ctx, "wecom: sending message", "url", w.cfg.WebhookURL)
+	w.cfg.LogDebug(ctx, "wecom: sending message", "endpoint", internal.URLOriginForLog(w.cfg.WebhookURL))
 
 	data, err := internal.PostJSON(ctx, w.cfg.GetHTTPClient(), w.cfg.WebhookURL, body)
 	if err != nil {

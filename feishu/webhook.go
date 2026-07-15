@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	json "github.com/gtkit/json/v2"
-	"net/url"
 	"strconv"
 	"time"
 
@@ -32,7 +31,7 @@ func New(cfg news.Config) (*Webhook, error) {
 	if cfg.WebhookURL == "" {
 		return nil, fmt.Errorf("feishu: webhook URL is required")
 	}
-	if _, err := url.ParseRequestURI(cfg.WebhookURL); err != nil {
+	if err := internal.ValidateHTTPURL(cfg.WebhookURL); err != nil {
 		return nil, fmt.Errorf("feishu: invalid webhook URL: %w", err)
 	}
 	cfg.Freeze()
@@ -165,9 +164,7 @@ func (w *Webhook) send(ctx context.Context, payload map[string]any) error {
 		return fmt.Errorf("feishu: marshal payload: %w", err)
 	}
 
-	if w.cfg.Logger != nil {
-		w.cfg.Logger.DebugContext(ctx, "feishu: sending message", "url", w.cfg.WebhookURL)
-	}
+	w.cfg.LogDebug(ctx, "feishu: sending message", "endpoint", internal.URLOriginForLog(w.cfg.WebhookURL))
 
 	data, err := internal.PostJSON(ctx, w.cfg.GetHTTPClient(), w.cfg.WebhookURL, body)
 	if err != nil {

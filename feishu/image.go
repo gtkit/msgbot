@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	news "github.com/gtkit/msgbot"
+	"github.com/gtkit/msgbot/internal"
 )
 
 const (
@@ -64,6 +65,12 @@ func UploadImageFromReader(ctx context.Context, tenantAccessToken, filename stri
 	if tenantAccessToken == "" {
 		return nil, fmt.Errorf("feishu: tenant access token is required for upload")
 	}
+	if filename == "" {
+		return nil, fmt.Errorf("feishu: filename is required for upload")
+	}
+	if reader == nil {
+		return nil, fmt.Errorf("feishu: image reader is nil")
+	}
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -77,7 +84,9 @@ func UploadImageFromReader(ctx context.Context, tenantAccessToken, filename stri
 		return nil, fmt.Errorf("feishu: copy image data: %w", err)
 	}
 
-	_ = writer.WriteField("image_type", "message")
+	if err := writer.WriteField("image_type", "message"); err != nil {
+		return nil, fmt.Errorf("feishu: write image type: %w", err)
+	}
 	if err = writer.Close(); err != nil {
 		return nil, fmt.Errorf("feishu: close multipart writer: %w", err)
 	}
@@ -97,14 +106,13 @@ func UploadImageFromReader(ctx context.Context, tenantAccessToken, filename stri
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("feishu: upload request: %w", err)
+		return nil, fmt.Errorf("feishu: upload request: %w", internal.SanitizeRequestError(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	const maxBody = 1 << 20
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	data, err := internal.ReadResponse(resp, 1<<20)
 	if err != nil {
-		return nil, fmt.Errorf("feishu: read upload response: %w", err)
+		return nil, fmt.Errorf("feishu: upload response: %w", err)
 	}
 
 	var uploadResp UploadImageResp
@@ -114,6 +122,9 @@ func UploadImageFromReader(ctx context.Context, tenantAccessToken, filename stri
 
 	if uploadResp.Code != 0 {
 		return nil, fmt.Errorf("feishu: upload image: code=%d, msg=%s", uploadResp.Code, uploadResp.Msg)
+	}
+	if uploadResp.ImageKey() == "" {
+		return nil, fmt.Errorf("feishu: upload image: image_key is empty")
 	}
 
 	return &uploadResp, nil

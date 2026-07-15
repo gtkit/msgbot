@@ -47,6 +47,16 @@ func TestPostJSONStatusError(t *testing.T) {
 	}
 }
 
+func TestReadResponseRejectsOversizedBody(t *testing.T) {
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader("12345")),
+	}
+	if _, err := ReadResponse(resp, 4); err == nil || !strings.Contains(err.Error(), "exceeds 4 bytes") {
+		t.Fatalf("want body size error, got %v", err)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {

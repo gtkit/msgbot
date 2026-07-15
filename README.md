@@ -146,18 +146,6 @@ r := gin.Default()
 r.POST("/alert", alertHandler(mgr))
 ```
 
-## 从 `github.com/gtkit/news/v2` 迁移
-
-| news/v2 | msgbot |
-|---------|--------|
-| `github.com/gtkit/news/v2` | `github.com/gtkit/msgbot` |
-| `github.com/gtkit/news/v2/feishu` | `github.com/gtkit/msgbot/feishu` |
-| `github.com/gtkit/news/v2/wecom` | `github.com/gtkit/msgbot/wecom` |
-| `github.com/gtkit/news/v2/dingtalk` | `github.com/gtkit/msgbot/dingtalk` |
-| `github.com/gtkit/news/v2/ginews` | 已移除，改用闭包注入（见「Web 框架集成」） |
-
-`msgbot` 作为新模块 v1 发布，module path 不带 `/v2`。
-
 ## License
 
 MIT

@@ -3,9 +3,11 @@ package dingtalk
 import (
 	"context"
 	"fmt"
-	json "github.com/gtkit/json/v2"
-	"io"
 	"net/http"
+	"net/url"
+
+	json "github.com/gtkit/json/v2"
+	"github.com/gtkit/msgbot/internal"
 )
 
 const (
@@ -36,28 +38,34 @@ func GetAccessToken(ctx context.Context, appKey, appSecret string, client ...*ht
 		return nil, fmt.Errorf("dingtalk: appkey and appsecret are required")
 	}
 
-	url := fmt.Sprintf("%s?appkey=%s&appsecret=%s", AccessTokenAPI, appKey, appSecret)
+	endpoint, err := url.Parse(AccessTokenAPI)
+	if err != nil {
+		return nil, fmt.Errorf("dingtalk: parse token endpoint: %w", err)
+	}
+	query := endpoint.Query()
+	query.Set("appkey", appKey)
+	query.Set("appsecret", appSecret)
+	endpoint.RawQuery = query.Encode()
 
 	httpClient := http.DefaultClient
 	if len(client) > 0 && client[0] != nil {
 		httpClient = client[0]
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("dingtalk: create token request: %w", err)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("dingtalk: send token request: %w", err)
+		return nil, fmt.Errorf("dingtalk: send token request: %w", internal.SanitizeRequestError(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	const maxBody = 1 << 20
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	data, err := internal.ReadResponse(resp, 1<<20)
 	if err != nil {
-		return nil, fmt.Errorf("dingtalk: read token response: %w", err)
+		return nil, fmt.Errorf("dingtalk: token response: %w", err)
 	}
 
 	var result accessTokenResp
@@ -67,6 +75,9 @@ func GetAccessToken(ctx context.Context, appKey, appSecret string, client ...*ht
 
 	if result.ErrCode != 0 {
 		return nil, fmt.Errorf("dingtalk: get access token: errcode=%d, errmsg=%s", result.ErrCode, result.ErrMsg)
+	}
+	if result.AccessToken == "" {
+		return nil, fmt.Errorf("dingtalk: get access token: access_token is empty")
 	}
 
 	return &AccessToken{

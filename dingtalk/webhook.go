@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	json "github.com/gtkit/json/v2"
-	"net/url"
 
 	news "github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
@@ -30,7 +29,7 @@ func New(cfg news.Config) (*Webhook, error) {
 	if cfg.WebhookURL == "" {
 		return nil, fmt.Errorf("dingtalk: webhook URL is required")
 	}
-	if _, err := url.ParseRequestURI(cfg.WebhookURL); err != nil {
+	if err := internal.ValidateHTTPURL(cfg.WebhookURL); err != nil {
 		return nil, fmt.Errorf("dingtalk: invalid webhook URL: %w", err)
 	}
 	cfg.Freeze()
@@ -221,7 +220,7 @@ func (w *Webhook) send(ctx context.Context, payload map[string]any) error {
 		return fmt.Errorf("dingtalk: marshal payload: %w", err)
 	}
 
-	w.cfg.LogDebug(ctx, "dingtalk: sending message", "url", webhookURL)
+	w.cfg.LogDebug(ctx, "dingtalk: sending message", "endpoint", internal.URLOriginForLog(webhookURL))
 
 	data, err := internal.PostJSON(ctx, w.cfg.GetHTTPClient(), webhookURL, body)
 	if err != nil {

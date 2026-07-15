@@ -76,6 +76,41 @@ func TestMulti(t *testing.T) {
 	}
 }
 
+func TestMultiRejectsNilProvidersAndCopiesInput(t *testing.T) {
+	valid := &fakeProvider{platform: PlatformFeishu}
+	if _, err := NewMulti(valid, nil); err == nil {
+		t.Fatal("expected nil provider error")
+	}
+
+	var typedNil *fakeProvider
+	if _, err := NewMulti(valid, typedNil); err == nil {
+		t.Fatal("expected typed nil provider error")
+	}
+
+	providers := []Provider{valid}
+	multi, err := NewMulti(providers...)
+	if err != nil {
+		t.Fatalf("new multi: %v", err)
+	}
+	providers[0] = &fakeProvider{platform: PlatformWeCom}
+	if multi.providers[0] != valid {
+		t.Fatal("multi must retain an immutable provider snapshot")
+	}
+}
+
+func TestManagerIgnoresNilProviders(t *testing.T) {
+	valid := &fakeProvider{platform: PlatformFeishu}
+	var typedNil *fakeProvider
+	mgr := NewManager(nil, typedNil, valid)
+
+	if mgr.Default() != valid {
+		t.Fatal("default provider should be the first valid provider")
+	}
+	if got := mgr.All(); len(got) != 1 || got[0] != valid {
+		t.Fatalf("unexpected providers: %#v", got)
+	}
+}
+
 func TestRichTextToMarkdown(t *testing.T) {
 	got := RichTextToMarkdown(&RichTextMessage{
 		Title: "标题",
