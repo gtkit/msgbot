@@ -1,6 +1,7 @@
 package msgbot_test
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/gtkit/msgbot"
@@ -24,4 +25,25 @@ func ExampleNewManager() {
 
 	fmt.Println(mgr.Default() == nil)
 	// Output: true
+}
+
+func ExampleError() {
+	err := msgbot.ValidationError(msgbot.PlatformFeishu, "SendText", "text content is empty", nil)
+
+	var e *msgbot.Error
+	if errors.As(err, &e) {
+		fmt.Println(e.Kind)
+		fmt.Println(e.Retryable)
+	}
+	// Output:
+	// validation
+	// false
+}
+
+func ExampleRetryPolicy() {
+	// Retry is opt-in; the zero value keeps single-attempt (at-most-once) sends.
+	cfg := msgbot.Config{Retry: msgbot.RetryPolicy{MaxRetries: 2, Jitter: true}}
+
+	fmt.Println(cfg.Retry.MaxRetries)
+	// Output: 2
 }

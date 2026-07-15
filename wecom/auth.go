@@ -7,6 +7,7 @@ import (
 	"net/url"
 
 	json "github.com/gtkit/json/v2"
+
 	"github.com/gtkit/msgbot/internal"
 )
 
@@ -47,10 +48,7 @@ func GetAccessToken(ctx context.Context, corpID, corpSecret string, client ...*h
 	query.Set("corpsecret", corpSecret)
 	endpoint.RawQuery = query.Encode()
 
-	httpClient := http.DefaultClient
-	if len(client) > 0 && client[0] != nil {
-		httpClient = client[0]
-	}
+	httpClient := internal.PickClient(internal.DefaultClient(), client)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {

@@ -8,8 +8,9 @@ package feishu
 import (
 	"context"
 	"fmt"
-	json "github.com/gtkit/json/v2"
+	"maps"
 	"strconv"
+	"strings"
 	"time"
 
 	news "github.com/gtkit/msgbot"
@@ -44,36 +45,57 @@ func (w *Webhook) Platform() news.Platform { return news.PlatformFeishu }
 // Stats returns the provider's send statistics.
 func (w *Webhook) Stats() *news.Stats { return &w.stats }
 
+// atEscaper escapes characters that would break a Feishu <at> tag structure.
+var atEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
+
+// escapeAt escapes a user identifier for safe interpolation into an <at> tag.
+func escapeAt(s string) string { return atEscaper.Replace(s) }
+
 // SendText sends a plain text message to the Feishu group.
+// Mentioned user identifiers are escaped before being placed in <at> tags.
 func (w *Webhook) SendText(ctx context.Context, text string, opts ...news.SendOption) error {
 	if text == "" {
-		return fmt.Errorf("feishu: text content is empty")
+		return news.ValidationError(news.PlatformFeishu, "SendText", "text content is empty", nil)
 	}
 	o := news.ApplySendOptions(opts)
 
-	content := text
+	var b strings.Builder
+	b.WriteString(text)
 	if o.AtAll {
-		content += " <at user_id=\"all\">所有人</at>"
+		b.WriteString(` <at user_id="all">所有人</at>`)
 	}
 	for _, uid := range o.AtUserIDs {
-		content += fmt.Sprintf(" <at user_id=\"%s\">%s</at>", uid, uid)
+		esc := escapeAt(uid)
+		b.WriteString(` <at user_id="`)
+		b.WriteString(esc)
+		b.WriteString(`">`)
+		b.WriteString(esc)
+		b.WriteString(`</at>`)
 	}
 
-	return w.send(ctx, map[string]any{
+	return w.send(ctx, "SendText", map[string]any{
 		"msg_type": "text",
-		"content":  map[string]any{"text": content},
+		"content":  map[string]any{"text": b.String()},
 	})
 }
 
 // SendMarkdown sends a markdown message as an interactive card.
 // Feishu webhook does not natively support markdown msg_type;
 // this wraps content in an interactive card with markdown rendering.
+// Mentions use the interactive-card <at id=...></at> syntax, which differs
+// from the text-message <at user_id="...">...</at> syntax.
 func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts ...news.SendOption) error {
 	if content == "" {
-		return fmt.Errorf("feishu: markdown content is empty")
+		return news.ValidationError(news.PlatformFeishu, "SendMarkdown", "markdown content is empty", nil)
+	}
+	o := news.ApplySendOptions(opts)
+
+	md := content
+	if mentions := cardMentions(o); mentions != "" {
+		md += "\n" + mentions
 	}
 
-	return w.send(ctx, map[string]any{
+	return w.send(ctx, "SendMarkdown", map[string]any{
 		"msg_type": "interactive",
 		"card": map[string]any{
 			"header": map[string]any{
@@ -85,11 +107,23 @@ func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts 
 			"elements": []any{
 				map[string]any{
 					"tag":     "markdown",
-					"content": content,
+					"content": md,
 				},
 			},
 		},
 	})
+}
+
+// cardMentions renders send options as interactive-card <at> elements.
+func cardMentions(o *news.SendOptions) string {
+	var parts []string
+	if o.AtAll {
+		parts = append(parts, "<at id=all></at>")
+	}
+	for _, uid := range o.AtUserIDs {
+		parts = append(parts, "<at id="+escapeAt(uid)+"></at>")
+	}
+	return strings.Join(parts, " ")
 }
 
 // SendRichText sends a rich text (post) message to the Feishu group.
@@ -97,7 +131,7 @@ func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts 
 // mentions, and images in a structured layout.
 func (w *Webhook) SendRichText(ctx context.Context, msg *news.RichTextMessage) error {
 	if msg == nil {
-		return fmt.Errorf("feishu: rich text message is nil")
+		return news.ValidationError(news.PlatformFeishu, "SendRichText", "rich text message is nil", nil)
 	}
 
 	lines := make([]any, 0, len(msg.Content))
@@ -121,7 +155,7 @@ func (w *Webhook) SendRichText(ctx context.Context, msg *news.RichTextMessage) e
 		lines = append(lines, elements)
 	}
 
-	return w.send(ctx, map[string]any{
+	return w.send(ctx, "SendRichText", map[string]any{
 		"msg_type": "post",
 		"content": map[string]any{
 			"post": map[string]any{
@@ -138,55 +172,34 @@ func (w *Webhook) SendRichText(ctx context.Context, msg *news.RichTextMessage) e
 // The ImageKey field must be set (obtained by uploading via Feishu open API).
 func (w *Webhook) SendImage(ctx context.Context, img *news.ImageMessage) error {
 	if img == nil || img.ImageKey == "" {
-		return fmt.Errorf("feishu: image_key is required")
+		return news.ValidationError(news.PlatformFeishu, "SendImage", "image_key is required", nil)
 	}
 
-	return w.send(ctx, map[string]any{
+	return w.send(ctx, "SendImage", map[string]any{
 		"msg_type": "image",
 		"content":  map[string]any{"image_key": img.ImageKey},
 	})
 }
 
-// send marshals the payload, applies signing if configured, and posts to webhook.
-func (w *Webhook) send(ctx context.Context, payload map[string]any) error {
-	if w.cfg.Secret != "" {
+// send dispatches the payload through the shared send path, applying Feishu
+// signing when a secret is configured. Signing is regenerated on every attempt
+// so retries carry a fresh timestamp, and the payload is cloned so retries do
+// not accumulate stale timestamp/sign fields.
+func (w *Webhook) send(ctx context.Context, op string, payload map[string]any) error {
+	return w.cfg.Send(ctx, &w.stats, news.PlatformFeishu, op, func() (string, any, error) {
+		if w.cfg.Secret == "" {
+			return w.cfg.WebhookURL, payload, nil
+		}
 		ts := time.Now().Unix()
 		sign, err := internal.FeishuSign(w.cfg.Secret, ts)
 		if err != nil {
-			return fmt.Errorf("feishu: generate sign: %w", err)
+			return "", nil, fmt.Errorf("generate sign: %w", err)
 		}
-		payload["timestamp"] = strconv.FormatInt(ts, 10)
-		payload["sign"] = sign
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("feishu: marshal payload: %w", err)
-	}
-
-	w.cfg.LogDebug(ctx, "feishu: sending message", "endpoint", internal.URLOriginForLog(w.cfg.WebhookURL))
-
-	data, err := internal.PostJSON(ctx, w.cfg.GetHTTPClient(), w.cfg.WebhookURL, body)
-	if err != nil {
-		w.stats.IncError()
-		w.cfg.LogError(ctx, "feishu: send failed", "error", err)
-		return fmt.Errorf("feishu: %w", err)
-	}
-
-	var resp news.Response
-	if err := json.Unmarshal(data, &resp); err != nil {
-		w.stats.IncError()
-		w.cfg.LogError(ctx, "feishu: decode response failed", "error", err)
-		return fmt.Errorf("feishu: decode response: %w", err)
-	}
-	if apiErr := resp.Err(); apiErr != nil {
-		w.stats.IncError()
-		w.cfg.LogError(ctx, "feishu: api error", "error", apiErr)
-		return fmt.Errorf("feishu: %w", apiErr)
-	}
-
-	w.stats.IncSent()
-	return nil
+		signed := maps.Clone(payload)
+		signed["timestamp"] = strconv.FormatInt(ts, 10)
+		signed["sign"] = sign
+		return w.cfg.WebhookURL, signed, nil
+	})
 }
 
 // BuildRichText creates a simple rich text message with title, body text,

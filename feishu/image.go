@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	json "github.com/gtkit/json/v2"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	json "github.com/gtkit/json/v2"
 
 	news "github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
@@ -99,10 +100,7 @@ func UploadImageFromReader(ctx context.Context, tenantAccessToken, filename stri
 	req.Header.Set("Authorization", "Bearer "+tenantAccessToken)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	httpClient := http.DefaultClient
-	if len(client) > 0 && client[0] != nil {
-		httpClient = client[0]
-	}
+	httpClient := internal.PickClient(internal.DefaultUploadClient(), client)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

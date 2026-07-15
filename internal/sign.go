@@ -19,9 +19,16 @@ func FeishuSign(secret string, timestamp int64) (string, error) {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }
 
-// DingTalkSignedURL appends timestamp and HMAC-SHA256 sign to the webhook URL.
-// The algorithm: base64(HMAC-SHA256(secret, timestamp + "\n" + secret)).
+// DingTalkSignedURL adds timestamp and HMAC-SHA256 sign query parameters to the
+// webhook URL. The algorithm: base64(HMAC-SHA256(secret, timestamp + "\n" + secret)).
+// Query handling goes through net/url so the result is correct whether or not the
+// base URL already carries a query string.
 func DingTalkSignedURL(webhookURL, secret string) (string, error) {
+	parsed, err := url.Parse(webhookURL)
+	if err != nil {
+		return "", fmt.Errorf("parse webhook url: %w", err)
+	}
+
 	ts := time.Now().UnixMilli()
 	stringToSign := strconv.FormatInt(ts, 10) + "\n" + secret
 
@@ -31,5 +38,10 @@ func DingTalkSignedURL(webhookURL, secret string) (string, error) {
 	}
 	sign := base64.StdEncoding.EncodeToString(h.Sum(nil))
 
-	return fmt.Sprintf("%s&timestamp=%d&sign=%s", webhookURL, ts, url.QueryEscape(sign)), nil
+	query := parsed.Query()
+	query.Set("timestamp", strconv.FormatInt(ts, 10))
+	query.Set("sign", sign)
+	parsed.RawQuery = query.Encode()
+
+	return parsed.String(), nil
 }

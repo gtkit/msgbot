@@ -4,6 +4,10 @@ import "strings"
 
 // RichTextToMarkdown converts a RichTextMessage to a markdown string.
 // This is used by platforms that do not natively support rich text (post) format.
+//
+// Degradation contract: "at" elements render as plain "@" text and do NOT
+// produce a real platform notification, and "img" elements are dropped because
+// their key is Feishu-specific and cannot be resolved on other platforms.
 func RichTextToMarkdown(msg *RichTextMessage) string {
 	if msg == nil {
 		return ""

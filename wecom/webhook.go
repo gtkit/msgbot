@@ -8,7 +8,6 @@ package wecom
 import (
 	"context"
 	"fmt"
-	json "github.com/gtkit/json/v2"
 
 	news "github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
@@ -43,20 +42,25 @@ func (w *Webhook) Platform() news.Platform { return news.PlatformWeCom }
 func (w *Webhook) Stats() *news.Stats { return &w.stats }
 
 // SendText sends a plain text message to the WeCom group.
+// AtAll and AtUserIDs are merged into mentioned_list, so both @all and specific
+// users can be mentioned in the same message.
 func (w *Webhook) SendText(ctx context.Context, text string, opts ...news.SendOption) error {
 	if text == "" {
-		return fmt.Errorf("wecom: text content is empty")
+		return news.ValidationError(news.PlatformWeCom, "SendText", "text content is empty", nil)
 	}
 	o := news.ApplySendOptions(opts)
 
 	textNode := map[string]any{"content": text}
+	var mentioned []string
 	if o.AtAll {
-		textNode["mentioned_list"] = []string{"@all"}
-	} else if len(o.AtUserIDs) > 0 {
-		textNode["mentioned_list"] = o.AtUserIDs
+		mentioned = append(mentioned, "@all")
+	}
+	mentioned = append(mentioned, o.AtUserIDs...)
+	if len(mentioned) > 0 {
+		textNode["mentioned_list"] = mentioned
 	}
 
-	return w.send(ctx, map[string]any{
+	return w.send(ctx, "SendText", map[string]any{
 		"msgtype": "text",
 		"text":    textNode,
 	})
@@ -64,9 +68,17 @@ func (w *Webhook) SendText(ctx context.Context, text string, opts ...news.SendOp
 
 // SendMarkdown sends a markdown message to the WeCom group.
 // WeCom supports: headers, bold, links, quotes, and colored text via <font>.
+//
+// WeCom markdown cannot mention specific users, so any @ options are ignored
+// (a debug log records this). The message is still sent so a Multi broadcast
+// stays best-effort. Use SendText when a mention must notify a user.
 func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts ...news.SendOption) error {
 	if content == "" {
-		return fmt.Errorf("wecom: markdown content is empty")
+		return news.ValidationError(news.PlatformWeCom, "SendMarkdown", "markdown content is empty", nil)
+	}
+	o := news.ApplySendOptions(opts)
+	if o.AtAll || len(o.AtUserIDs) > 0 {
+		w.cfg.LogDebug(ctx, "wecom: markdown cannot mention users; @ options ignored", "op", "SendMarkdown")
 	}
 
 	md := content
@@ -74,7 +86,7 @@ func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts 
 		md = "### " + title + "\n" + content
 	}
 
-	return w.send(ctx, map[string]any{
+	return w.send(ctx, "SendMarkdown", map[string]any{
 		"msgtype":  "markdown",
 		"markdown": map[string]any{"content": md},
 	})
@@ -84,7 +96,7 @@ func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts 
 // WeCom does not natively support Feishu-style rich text.
 func (w *Webhook) SendRichText(ctx context.Context, msg *news.RichTextMessage) error {
 	if msg == nil {
-		return fmt.Errorf("wecom: rich text message is nil")
+		return news.ValidationError(news.PlatformWeCom, "SendRichText", "rich text message is nil", nil)
 	}
 	md := news.RichTextToMarkdown(msg)
 	return w.SendMarkdown(ctx, "", md)
@@ -94,10 +106,10 @@ func (w *Webhook) SendRichText(ctx context.Context, msg *news.RichTextMessage) e
 // Both Base64 and MD5 fields must be set in the ImageMessage.
 func (w *Webhook) SendImage(ctx context.Context, img *news.ImageMessage) error {
 	if img == nil || img.Base64 == "" || img.MD5 == "" {
-		return fmt.Errorf("wecom: both base64 and md5 are required for image")
+		return news.ValidationError(news.PlatformWeCom, "SendImage", "both base64 and md5 are required for image", nil)
 	}
 
-	return w.send(ctx, map[string]any{
+	return w.send(ctx, "SendImage", map[string]any{
 		"msgtype": "image",
 		"image": map[string]any{
 			"base64": img.Base64,
@@ -106,34 +118,10 @@ func (w *Webhook) SendImage(ctx context.Context, img *news.ImageMessage) error {
 	})
 }
 
-// send marshals and posts the payload to the WeCom webhook URL.
-func (w *Webhook) send(ctx context.Context, payload map[string]any) error {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("wecom: marshal payload: %w", err)
-	}
-
-	w.cfg.LogDebug(ctx, "wecom: sending message", "endpoint", internal.URLOriginForLog(w.cfg.WebhookURL))
-
-	data, err := internal.PostJSON(ctx, w.cfg.GetHTTPClient(), w.cfg.WebhookURL, body)
-	if err != nil {
-		w.stats.IncError()
-		w.cfg.LogError(ctx, "wecom: send failed", "error", err)
-		return fmt.Errorf("wecom: %w", err)
-	}
-
-	var resp news.Response
-	if err := json.Unmarshal(data, &resp); err != nil {
-		w.stats.IncError()
-		w.cfg.LogError(ctx, "wecom: decode response failed", "error", err)
-		return fmt.Errorf("wecom: decode response: %w", err)
-	}
-	if apiErr := resp.Err(); apiErr != nil {
-		w.stats.IncError()
-		w.cfg.LogError(ctx, "wecom: api error", "error", apiErr)
-		return fmt.Errorf("wecom: %w", apiErr)
-	}
-
-	w.stats.IncSent()
-	return nil
+// send dispatches the payload through the shared send path. WeCom webhook
+// requires no request signing.
+func (w *Webhook) send(ctx context.Context, op string, payload map[string]any) error {
+	return w.cfg.Send(ctx, &w.stats, news.PlatformWeCom, op, func() (string, any, error) {
+		return w.cfg.WebhookURL, payload, nil
+	})
 }

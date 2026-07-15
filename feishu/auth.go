@@ -3,10 +3,11 @@ package feishu
 import (
 	"context"
 	"fmt"
-	json "github.com/gtkit/json/v2"
 	"net/http"
 	"net/url"
 	"os"
+
+	json "github.com/gtkit/json/v2"
 
 	"github.com/gtkit/msgbot/internal"
 )
@@ -49,10 +50,7 @@ func GetAccessToken(ctx context.Context, appID, appSecret string, client ...*htt
 		return nil, fmt.Errorf("feishu: marshal token request: %w", err)
 	}
 
-	httpClient := http.DefaultClient
-	if len(client) > 0 && client[0] != nil {
-		httpClient = client[0]
-	}
+	httpClient := internal.PickClient(internal.DefaultClient(), client)
 
 	data, err := internal.PostJSON(ctx, httpClient, AccessTokenAPI, payload)
 	if err != nil {
@@ -108,10 +106,7 @@ func (t *AccessToken) DownloadImage(ctx context.Context, imageKey, savePath stri
 
 	api := "https://open.feishu.cn/open-apis/im/v1/images/" + url.PathEscape(imageKey)
 
-	httpClient := http.DefaultClient
-	if len(client) > 0 && client[0] != nil {
-		httpClient = client[0]
-	}
+	httpClient := internal.PickClient(internal.DefaultUploadClient(), client)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api, nil)
 	if err != nil {

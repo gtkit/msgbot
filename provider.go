@@ -6,7 +6,6 @@ package msgbot
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -96,28 +95,14 @@ type ImageMessage struct {
 	PicURL   string // DingTalk: publicly accessible image URL.
 }
 
-// Logger defines a minimal logging interface for debugging.
-// If nil, no debug logs are emitted.
+// Logger defines a minimal logging interface for debugging. It is intentionally
+// small so callers can adapt any logging library in a few lines without this
+// package depending on one. If nil, no debug logs are emitted.
 type Logger interface {
 	// DebugContext logs a debug message with context.
 	DebugContext(ctx context.Context, msg string, args ...any)
 	// ErrorContext logs an error message with context.
 	ErrorContext(ctx context.Context, msg string, args ...any)
-}
-
-// SlogLogger wraps *slog.Logger to implement Logger.
-type SlogLogger struct {
-	L *slog.Logger
-}
-
-// DebugContext implements Logger.
-func (s *SlogLogger) DebugContext(ctx context.Context, msg string, args ...any) {
-	s.L.DebugContext(ctx, msg, args...)
-}
-
-// ErrorContext implements Logger.
-func (s *SlogLogger) ErrorContext(ctx context.Context, msg string, args ...any) {
-	s.L.ErrorContext(ctx, msg, args...)
 }
 
 // Config holds the common configuration for a webhook provider.
@@ -129,6 +114,7 @@ type Config struct {
 	HTTPClient *http.Client  // Optional: custom HTTP client; uses default if nil.
 	Timeout    time.Duration // Optional: request timeout; defaults to 10s when HTTPClient is nil.
 	Logger     Logger        // Optional: logger for debug/error messages; nil disables logging.
+	Retry      RetryPolicy   // Optional: retry policy for failed sends; zero value disables retry.
 
 	// frozen is the resolved HTTP client, set once by Freeze().
 	// After freezing, GetHTTPClient() always returns this same instance.
@@ -178,18 +164,26 @@ type Response struct {
 	Msg     string `json:"msg,omitempty"`
 }
 
+// code returns the effective business code, preferring Code over ErrCode.
+func (r *Response) code() int {
+	if r.Code != 0 {
+		return r.Code
+	}
+	return r.ErrCode
+}
+
+// message returns the effective message, preferring Msg over ErrMsg.
+func (r *Response) message() string {
+	if r.Msg != "" {
+		return r.Msg
+	}
+	return r.ErrMsg
+}
+
 // Err returns a non-nil error if the response indicates failure.
 func (r *Response) Err() error {
-	code := r.Code
-	if code == 0 {
-		code = r.ErrCode
-	}
-	if code != 0 {
-		msg := r.Msg
-		if msg == "" {
-			msg = r.ErrMsg
-		}
-		return fmt.Errorf("api error: code=%d, msg=%s", code, msg)
+	if code := r.code(); code != 0 {
+		return fmt.Errorf("api error: code=%d, msg=%s", code, r.message())
 	}
 	return nil
 }

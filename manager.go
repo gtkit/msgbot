@@ -96,7 +96,10 @@ type Manager struct {
 }
 
 // NewManager creates a new Manager from the given providers.
-// The first provider becomes the default platform.
+// The first non-nil provider becomes the default platform.
+//
+// Nil and typed-nil providers are skipped. When two providers report the same
+// platform, the later one overwrites the earlier one.
 func NewManager(providers ...Provider) *Manager {
 	m := &Manager{
 		providers: make(map[Platform]Provider, len(providers)),
@@ -125,9 +128,15 @@ func (m *Manager) Default() Provider {
 	return m.providers[p]
 }
 
-// SetDefault changes the default platform atomically.
-func (m *Manager) SetDefault(platform Platform) {
+// SetDefault changes the default platform atomically. It returns an error if
+// the platform has no registered provider, leaving the current default
+// unchanged, so Default() can never resolve to a nil provider.
+func (m *Manager) SetDefault(platform Platform) error {
+	if _, ok := m.providers[platform]; !ok {
+		return fmt.Errorf("msgbot: platform %q is not registered", platform)
+	}
 	m.defaults.Store(platform)
+	return nil
 }
 
 // Feishu returns the Feishu provider, or nil if not registered.

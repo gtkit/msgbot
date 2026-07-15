@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	json "github.com/gtkit/json/v2"
+
 	news "github.com/gtkit/msgbot"
 )
 

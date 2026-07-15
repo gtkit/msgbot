@@ -3,8 +3,6 @@ package msgbot
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
 	"strings"
 	"testing"
 )
@@ -31,7 +29,9 @@ func TestManager(t *testing.T) {
 		t.Fatal("platform provider mismatch")
 	}
 
-	mgr.SetDefault(PlatformWeCom)
+	if err := mgr.SetDefault(PlatformWeCom); err != nil {
+		t.Fatalf("set default: %v", err)
+	}
 	if mgr.Default() != wc {
 		t.Fatal("updated default provider mismatch")
 	}
@@ -43,6 +43,28 @@ func TestManager(t *testing.T) {
 	}
 	if multi, err := mgr.Multi(); err != nil || multi == nil {
 		t.Fatalf("manager multi: %v", err)
+	}
+}
+
+func TestManagerSetDefaultRejectsUnregistered(t *testing.T) {
+	fs := &fakeProvider{platform: PlatformFeishu}
+	mgr := NewManager(fs)
+
+	if err := mgr.SetDefault(PlatformDingTalk); err == nil {
+		t.Fatal("expected error for unregistered platform")
+	}
+	if mgr.Default() != fs {
+		t.Fatal("default must stay unchanged after a rejected SetDefault")
+	}
+}
+
+func TestManagerLastRegistrationWins(t *testing.T) {
+	first := &fakeProvider{platform: PlatformFeishu}
+	second := &fakeProvider{platform: PlatformFeishu}
+	mgr := NewManager(first, second)
+
+	if mgr.Get(PlatformFeishu) != second {
+		t.Fatal("later provider for the same platform must overwrite the earlier one")
 	}
 }
 
@@ -133,12 +155,13 @@ func TestConfigStatsAndLogger(t *testing.T) {
 		t.Fatal("http client is nil")
 	}
 
-	logger := &SlogLogger{L: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	logger := &discardLogger{}
 	cfg.Logger = logger
 	cfg.LogDebug(context.Background(), "debug")
 	cfg.LogError(context.Background(), "error")
-	logger.DebugContext(context.Background(), "debug")
-	logger.ErrorContext(context.Background(), "error")
+	if logger.debug != 1 || logger.err != 1 {
+		t.Fatalf("logger not invoked: debug=%d err=%d", logger.debug, logger.err)
+	}
 
 	var stats Stats
 	stats.IncSent()
@@ -147,6 +170,14 @@ func TestConfigStatsAndLogger(t *testing.T) {
 		t.Fatalf("unexpected stats sent=%d error=%d", stats.TotalSent(), stats.TotalError())
 	}
 }
+
+type discardLogger struct {
+	debug int
+	err   int
+}
+
+func (l *discardLogger) DebugContext(context.Context, string, ...any) { l.debug++ }
+func (l *discardLogger) ErrorContext(context.Context, string, ...any) { l.err++ }
 
 type fakeProvider struct {
 	platform Platform

@@ -1,0 +1,23 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  exclusions:
+    generated: lax
+    rules:
+      # Table-driven and example tests keep assertions inline; relax noise there.
+      - path: _test\.go
+        linters:
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/gtkit/msgbot

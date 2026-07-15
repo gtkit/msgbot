@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"time"
 )
 
 // PostJSON sends an HTTP POST request with a JSON body and returns the response body.
@@ -32,8 +34,45 @@ func PostJSON(ctx context.Context, client *http.Client, url string, body []byte)
 	return ReadResponse(resp, 1<<20)
 }
 
+// HTTPError reports a non-2xx HTTP response. It carries the status code so
+// callers can classify the failure (for example, decide whether to retry)
+// without parsing the error string. The body is retained for diagnostics, and
+// RetryAfter holds the parsed Retry-After header value when the server sent one.
+type HTTPError struct {
+	StatusCode int
+	Body       string
+	RetryAfter time.Duration
+}
+
+// Error implements error. The wording is kept stable for callers that match it.
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("unexpected status %d: %s", e.StatusCode, e.Body)
+}
+
+// parseRetryAfter interprets a Retry-After header value, which is either a
+// number of seconds or an HTTP date. It returns 0 when the value is absent or
+// unparseable.
+func parseRetryAfter(v string) time.Duration {
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs < 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
 // ReadResponse reads and validates an HTTP response body.
 // The caller remains responsible for closing resp.Body.
+// A non-2xx status returns the body together with an *HTTPError.
 func ReadResponse(resp *http.Response, maxBody int64) ([]byte, error) {
 	if resp == nil {
 		return nil, fmt.Errorf("read response: response is nil")
@@ -53,7 +92,11 @@ func ReadResponse(resp *http.Response, maxBody int64) ([]byte, error) {
 		return nil, fmt.Errorf("read response: body exceeds %d bytes", maxBody)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return data, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(data))
+		return data, &HTTPError{
+			StatusCode: resp.StatusCode,
+			Body:       string(data),
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+		}
 	}
 
 	return data, nil

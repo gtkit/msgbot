@@ -8,7 +8,7 @@ package dingtalk
 import (
 	"context"
 	"fmt"
-	json "github.com/gtkit/json/v2"
+	"strings"
 
 	news "github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
@@ -43,42 +43,63 @@ func (w *Webhook) Platform() news.Platform { return news.PlatformDingTalk }
 func (w *Webhook) Stats() *news.Stats { return &w.stats }
 
 // SendText sends a plain text message to the DingTalk group.
+// A DingTalk mention notifies a user only when @<mobile> appears in the body,
+// so mentioned mobiles are appended to the content in addition to at.atMobiles.
 func (w *Webhook) SendText(ctx context.Context, text string, opts ...news.SendOption) error {
 	if text == "" {
-		return fmt.Errorf("dingtalk: text content is empty")
+		return news.ValidationError(news.PlatformDingTalk, "SendText", "text content is empty", nil)
 	}
 	o := news.ApplySendOptions(opts)
 
-	return w.send(ctx, map[string]any{
+	content := text
+	if mentions := atMobiles(o.AtUserIDs); mentions != "" {
+		content += " " + mentions
+	}
+
+	return w.send(ctx, "SendText", map[string]any{
 		"msgtype": "text",
-		"text":    map[string]any{"content": text},
+		"text":    map[string]any{"content": content},
 		"at":      buildAt(o),
 	})
 }
 
 // SendMarkdown sends a markdown message to the DingTalk group.
 // DingTalk supports: headers, bold, links, images, ordered/unordered lists, quotes.
+// The title is required by DingTalk. Mentioned mobiles are appended to the body
+// (@<mobile>) so the mention notifies, in addition to at.atMobiles.
 func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts ...news.SendOption) error {
 	if content == "" {
-		return fmt.Errorf("dingtalk: markdown content is empty")
+		return news.ValidationError(news.PlatformDingTalk, "SendMarkdown", "markdown content is empty", nil)
+	}
+	if title == "" {
+		return news.ValidationError(news.PlatformDingTalk, "SendMarkdown", "markdown title is required", nil)
 	}
 	o := news.ApplySendOptions(opts)
 
-	return w.send(ctx, map[string]any{
+	text := content
+	if mentions := atMobiles(o.AtUserIDs); mentions != "" {
+		text += "\n\n" + mentions
+	}
+
+	return w.send(ctx, "SendMarkdown", map[string]any{
 		"msgtype": "markdown",
 		"markdown": map[string]any{
 			"title": title,
-			"text":  content,
+			"text":  text,
 		},
 		"at": buildAt(o),
 	})
 }
 
 // SendRichText converts a RichTextMessage to markdown and sends it.
-// DingTalk does not natively support Feishu-style rich text.
+// DingTalk does not natively support Feishu-style rich text. The title is
+// required by DingTalk markdown.
 func (w *Webhook) SendRichText(ctx context.Context, msg *news.RichTextMessage) error {
 	if msg == nil {
-		return fmt.Errorf("dingtalk: rich text message is nil")
+		return news.ValidationError(news.PlatformDingTalk, "SendRichText", "rich text message is nil", nil)
+	}
+	if msg.Title == "" {
+		return news.ValidationError(news.PlatformDingTalk, "SendRichText", "rich text title is required", nil)
 	}
 	md := news.RichTextToMarkdown(msg)
 	return w.SendMarkdown(ctx, msg.Title, md)
@@ -89,10 +110,10 @@ func (w *Webhook) SendRichText(ctx context.Context, msg *news.RichTextMessage) e
 // images are sent via markdown ![alt](picURL).
 func (w *Webhook) SendImage(ctx context.Context, img *news.ImageMessage) error {
 	if img == nil || img.PicURL == "" {
-		return fmt.Errorf("dingtalk: picURL is required for image")
+		return news.ValidationError(news.PlatformDingTalk, "SendImage", "picURL is required for image", nil)
 	}
 
-	return w.send(ctx, map[string]any{
+	return w.send(ctx, "SendImage", map[string]any{
 		"msgtype": "markdown",
 		"markdown": map[string]any{
 			"title": "image",
@@ -101,13 +122,25 @@ func (w *Webhook) SendImage(ctx context.Context, img *news.ImageMessage) error {
 	})
 }
 
+// atMobiles renders mentioned mobiles as "@m1 @m2" for injection into the body.
+func atMobiles(mobiles []string) string {
+	if len(mobiles) == 0 {
+		return ""
+	}
+	parts := make([]string, len(mobiles))
+	for i, m := range mobiles {
+		parts[i] = "@" + m
+	}
+	return strings.Join(parts, " ")
+}
+
 // SendLink sends a link message (DingTalk-specific).
 func (w *Webhook) SendLink(ctx context.Context, title, text, messageURL, picURL string) error {
 	if title == "" || text == "" || messageURL == "" {
-		return fmt.Errorf("dingtalk: title, text, and messageURL are required for link")
+		return news.ValidationError(news.PlatformDingTalk, "SendLink", "title, text, and messageURL are required for link", nil)
 	}
 
-	return w.send(ctx, map[string]any{
+	return w.send(ctx, "SendLink", map[string]any{
 		"msgtype": "link",
 		"link": map[string]any{
 			"title":      title,
@@ -137,7 +170,7 @@ type Button struct {
 // SendActionCard sends an ActionCard message (DingTalk-specific).
 func (w *Webhook) SendActionCard(ctx context.Context, card *ActionCard) error {
 	if card == nil {
-		return fmt.Errorf("dingtalk: action card is nil")
+		return news.ValidationError(news.PlatformDingTalk, "SendActionCard", "action card is nil", nil)
 	}
 
 	ac := map[string]any{
@@ -160,7 +193,7 @@ func (w *Webhook) SendActionCard(ctx context.Context, card *ActionCard) error {
 		ac["singleURL"] = card.SingleURL
 	}
 
-	return w.send(ctx, map[string]any{
+	return w.send(ctx, "SendActionCard", map[string]any{
 		"msgtype":    "actionCard",
 		"actionCard": ac,
 	})
@@ -176,7 +209,7 @@ type FeedLink struct {
 // SendFeedCard sends a FeedCard message (DingTalk-specific).
 func (w *Webhook) SendFeedCard(ctx context.Context, links []FeedLink) error {
 	if len(links) == 0 {
-		return fmt.Errorf("dingtalk: feed card requires at least one link")
+		return news.ValidationError(news.PlatformDingTalk, "SendFeedCard", "feed card requires at least one link", nil)
 	}
 
 	items := make([]map[string]any, 0, len(links))
@@ -188,7 +221,7 @@ func (w *Webhook) SendFeedCard(ctx context.Context, links []FeedLink) error {
 		})
 	}
 
-	return w.send(ctx, map[string]any{
+	return w.send(ctx, "SendFeedCard", map[string]any{
 		"msgtype":  "feedCard",
 		"feedCard": map[string]any{"links": items},
 	})
@@ -203,44 +236,19 @@ func buildAt(o *news.SendOptions) map[string]any {
 	return at
 }
 
-// send marshals and posts payload, appending signing params when configured.
-func (w *Webhook) send(ctx context.Context, payload map[string]any) error {
-	webhookURL := w.cfg.WebhookURL
-
-	if w.cfg.Secret != "" {
-		var err error
-		webhookURL, err = internal.DingTalkSignedURL(webhookURL, w.cfg.Secret)
-		if err != nil {
-			return fmt.Errorf("dingtalk: %w", err)
+// send dispatches the payload through the shared send path, signing the URL
+// when a secret is configured. Signing is regenerated on every attempt so the
+// timestamp stays within DingTalk's validity window across retries.
+func (w *Webhook) send(ctx context.Context, op string, payload map[string]any) error {
+	return w.cfg.Send(ctx, &w.stats, news.PlatformDingTalk, op, func() (string, any, error) {
+		url := w.cfg.WebhookURL
+		if w.cfg.Secret != "" {
+			signed, err := internal.DingTalkSignedURL(url, w.cfg.Secret)
+			if err != nil {
+				return "", nil, fmt.Errorf("sign url: %w", err)
+			}
+			url = signed
 		}
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("dingtalk: marshal payload: %w", err)
-	}
-
-	w.cfg.LogDebug(ctx, "dingtalk: sending message", "endpoint", internal.URLOriginForLog(webhookURL))
-
-	data, err := internal.PostJSON(ctx, w.cfg.GetHTTPClient(), webhookURL, body)
-	if err != nil {
-		w.stats.IncError()
-		w.cfg.LogError(ctx, "dingtalk: send failed", "error", err)
-		return fmt.Errorf("dingtalk: %w", err)
-	}
-
-	var resp news.Response
-	if err := json.Unmarshal(data, &resp); err != nil {
-		w.stats.IncError()
-		w.cfg.LogError(ctx, "dingtalk: decode response failed", "error", err)
-		return fmt.Errorf("dingtalk: decode response: %w", err)
-	}
-	if apiErr := resp.Err(); apiErr != nil {
-		w.stats.IncError()
-		w.cfg.LogError(ctx, "dingtalk: api error", "error", apiErr)
-		return fmt.Errorf("dingtalk: %w", apiErr)
-	}
-
-	w.stats.IncSent()
-	return nil
+		return url, payload, nil
+	})
 }
