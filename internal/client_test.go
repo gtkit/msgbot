@@ -2,6 +2,7 @@ package internal
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -65,5 +66,19 @@ func TestHTTPErrorMessage(t *testing.T) {
 	e := &HTTPError{StatusCode: 429, Body: "slow down"}
 	if e.Error() != "unexpected status 429: slow down" {
 		t.Fatalf("unexpected message: %q", e.Error())
+	}
+}
+
+func TestHTTPErrorTruncatesLargeBody(t *testing.T) {
+	e := &HTTPError{StatusCode: 502, Body: strings.Repeat("x", 1<<20)}
+	msg := e.Error()
+	if len(msg) > maxBodyInError+64 {
+		t.Fatalf("error message not truncated: len=%d", len(msg))
+	}
+	if !strings.HasPrefix(msg, "unexpected status 502: ") {
+		t.Fatalf("prefix not preserved: %q", msg[:40])
+	}
+	if !strings.Contains(msg, "truncated") {
+		t.Fatal("expected a truncation marker")
 	}
 }

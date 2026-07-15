@@ -20,8 +20,14 @@ type RetryPolicy struct {
 	// InitialDelay 是首次重试前的基础退避时长。
 	// 为零且启用重试时默认为 200ms。
 	InitialDelay time.Duration
-	// MaxDelay 限制单次退避间隔的上限。为零时默认为 3s。
+	// MaxDelay 限制本地指数退避的单次上限。为零时默认为 3s。
+	// 注意：它不限制服务端 Retry-After（后者由 MaxRetryAfter 单独约束）。
 	MaxDelay time.Duration
+	// MaxRetryAfter 是尊重服务端 Retry-After 时的安全上限，防止一个异常巨大的
+	// Retry-After 在调用方使用无 deadline 的 context（如 context.Background()）
+	// 时造成近乎永久的阻塞。为零时默认为 30s；设为负值表示不设上限（完全信任
+	// 服务端，仅由 ctx 兜底）。
+	MaxRetryAfter time.Duration
 	// Jitter 为每次退避加入随机 jitter，以避免 thundering herd。
 	Jitter bool
 }
@@ -41,6 +47,11 @@ func (p RetryPolicy) do(ctx context.Context, fn func(context.Context) error) err
 	if maxDelay <= 0 {
 		maxDelay = 3 * time.Second
 	}
+	// MaxRetryAfter：零值取默认 30s；负值表示不设上限。
+	maxRetryAfter := p.MaxRetryAfter
+	if maxRetryAfter == 0 {
+		maxRetryAfter = 30 * time.Second
+	}
 
 	var err error
 	for attempt := 0; ; attempt++ {
@@ -51,7 +62,7 @@ func (p RetryPolicy) do(ctx context.Context, fn func(context.Context) error) err
 		if attempt >= maxRetries || !isRetryable(err) {
 			return err
 		}
-		delay := backoff(initial, maxDelay, attempt, err, p.Jitter)
+		delay := backoff(initial, maxDelay, maxRetryAfter, attempt, err, p.Jitter)
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -63,11 +74,14 @@ func (p RetryPolicy) do(ctx context.Context, fn func(context.Context) error) err
 }
 
 // backoff 计算下一次尝试前的等待时长。服务端建议的 Retry-After（携带在结构化
-// 错误上）优先生效，并被完整尊重（不受 maxDelay 截断，总时长由 do 中的 ctx
-// 兜底）；否则退避时长从 initial 起按指数增长，被限制在 maxDelay 内，并可选地
-// 加入 equal jitter（一半固定、一半随机）。
-func backoff(initial, maxDelay time.Duration, attempt int, err error, jitter bool) time.Duration {
+// 错误上）优先生效，不受 maxDelay 截断，但受 maxRetryAfter 安全上限约束
+// （maxRetryAfter < 0 表示不设上限）；否则退避时长从 initial 起按指数增长，
+// 被限制在 maxDelay 内，并可选地加入 equal jitter（一半固定、一半随机）。
+func backoff(initial, maxDelay, maxRetryAfter time.Duration, attempt int, err error, jitter bool) time.Duration {
 	if e, ok := errors.AsType[*Error](err); ok && e.RetryAfter > 0 {
+		if maxRetryAfter >= 0 && e.RetryAfter > maxRetryAfter {
+			return maxRetryAfter
+		}
 		return e.RetryAfter
 	}
 

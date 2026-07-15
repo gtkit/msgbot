@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"unicode/utf8"
 )
 
 // PostJSON 发送带 JSON 请求体的 HTTP POST 请求并返回响应体。
@@ -43,9 +44,24 @@ type HTTPError struct {
 	RetryAfter time.Duration
 }
 
-// Error 实现 error 接口。措辞保持稳定，便于依赖匹配的调用方。
+// maxBodyInError 是错误字符串中包含的响应体最大字节数。响应体上限为 1MiB，
+// 若原样拼进错误串会造成超长错误（并可能带出上游网关/平台返回的无关内容），
+// 因此在 Error() 中截断，仅保留开头用于诊断。
+const maxBodyInError = 512
+
+// Error 实现 error 接口。措辞（前缀 "unexpected status <code>"）保持稳定，
+// 便于依赖匹配的调用方；响应体过长时被截断。
 func (e *HTTPError) Error() string {
-	return fmt.Sprintf("unexpected status %d: %s", e.StatusCode, e.Body)
+	body := e.Body
+	if len(body) > maxBodyInError {
+		// 按 rune 边界截断，避免切断多字节 UTF-8 字符。
+		truncated := body[:maxBodyInError]
+		for len(truncated) > 0 && !utf8.ValidString(truncated) {
+			truncated = truncated[:len(truncated)-1]
+		}
+		body = truncated + "…(truncated)"
+	}
+	return fmt.Sprintf("unexpected status %d: %s", e.StatusCode, body)
 }
 
 // parseRetryAfter 解析 Retry-After 头的值，它可能是秒数或 HTTP 日期。

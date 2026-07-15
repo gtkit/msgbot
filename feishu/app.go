@@ -36,10 +36,10 @@ type App struct {
 // NewAppWithTokenSource，以便每次操作都能获取新的 token。
 func NewApp(token *AccessToken, client ...*http.Client) (*App, error) {
 	if token == nil {
-		return nil, fmt.Errorf("feishu: access token is nil")
+		return nil, msgbot.ValidationError(msgbot.PlatformFeishu, "NewApp", "access token is nil", nil)
 	}
 	if token.TenantAccessToken == "" {
-		return nil, fmt.Errorf("feishu: tenant access token is empty")
+		return nil, msgbot.ValidationError(msgbot.PlatformFeishu, "NewApp", "tenant access token is empty", nil)
 	}
 	snapshot := *token
 	return NewAppWithTokenSource(func(context.Context) (*AccessToken, error) {
@@ -52,7 +52,7 @@ func NewApp(token *AccessToken, client ...*http.Client) (*App, error) {
 // 包装在闭包中传入，从而将刷新与缓存结合起来。
 func NewAppWithTokenSource(source TokenSource, client ...*http.Client) (*App, error) {
 	if source == nil {
-		return nil, fmt.Errorf("feishu: token source is nil")
+		return nil, msgbot.ValidationError(msgbot.PlatformFeishu, "NewAppWithTokenSource", "token source is nil", nil)
 	}
 	var c *http.Client
 	if len(client) > 0 && client[0] != nil {
@@ -86,7 +86,7 @@ func (a *App) token(ctx context.Context) (*AccessToken, error) {
 		return nil, fmt.Errorf("feishu: resolve token: %w", err)
 	}
 	if t == nil || t.TenantAccessToken == "" {
-		return nil, fmt.Errorf("feishu: token source returned an empty tenant access token")
+		return nil, msgbot.ValidationError(msgbot.PlatformFeishu, "App.token", "token source returned an empty tenant access token", nil)
 	}
 	return t, nil
 }
@@ -94,10 +94,10 @@ func (a *App) token(ctx context.Context) (*AccessToken, error) {
 // SendTextMessage 向飞书 open_id 发送一条文本应用消息。
 func (a *App) SendTextMessage(ctx context.Context, openID, text string) error {
 	if openID == "" {
-		return fmt.Errorf("feishu: open_id is required")
+		return msgbot.ValidationError(msgbot.PlatformFeishu, "App.SendTextMessage", "open_id is required", nil)
 	}
 	if text == "" {
-		return fmt.Errorf("feishu: text content is empty")
+		return msgbot.ValidationError(msgbot.PlatformFeishu, "App.SendTextMessage", "text content is empty", nil)
 	}
 
 	token, err := a.token(ctx)
@@ -122,10 +122,10 @@ func (a *App) SendTextMessage(ctx context.Context, openID, text string) error {
 // 绝不会分别使用不同的 token。
 func (a *App) SendImageMessage(ctx context.Context, openID, path string) error {
 	if openID == "" {
-		return fmt.Errorf("feishu: open_id is required")
+		return msgbot.ValidationError(msgbot.PlatformFeishu, "App.SendImageMessage", "open_id is required", nil)
 	}
 	if path == "" {
-		return fmt.Errorf("feishu: image path is required")
+		return msgbot.ValidationError(msgbot.PlatformFeishu, "App.SendImageMessage", "image path is required", nil)
 	}
 
 	token, err := a.token(ctx)

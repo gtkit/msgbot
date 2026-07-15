@@ -96,13 +96,13 @@ func (t *AccessToken) UploadImageWithToken(ctx context.Context, path string, cli
 // DownloadImage 使用 AccessToken 从飞书下载图片到本地路径.
 func (t *AccessToken) DownloadImage(ctx context.Context, imageKey, savePath string, client ...*http.Client) error {
 	if t.TenantAccessToken == "" {
-		return fmt.Errorf("feishu: tenant access token is empty")
+		return msgbot.ValidationError(msgbot.PlatformFeishu, "DownloadImage", "tenant access token is empty", nil)
 	}
 	if imageKey == "" {
-		return fmt.Errorf("feishu: image key is required")
+		return msgbot.ValidationError(msgbot.PlatformFeishu, "DownloadImage", "image key is required", nil)
 	}
 	if savePath == "" {
-		return fmt.Errorf("feishu: save path is required")
+		return msgbot.ValidationError(msgbot.PlatformFeishu, "DownloadImage", "save path is required", nil)
 	}
 
 	api := "https://open.feishu.cn/open-apis/im/v1/images/" + url.PathEscape(imageKey)

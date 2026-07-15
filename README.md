@@ -350,6 +350,8 @@ bot, _ := feishu.New(msgbot.Config{
 })
 ```
 
+`Retry-After` 处理：服务端指定的等待时长完整生效、不被 `MaxDelay` 截断，但受 `MaxRetryAfter` 安全上限约束（默认 30s），以防调用方使用无 deadline 的 `context.Background()` 时，一个异常巨大的 `Retry-After` 造成近乎永久的阻塞；设 `MaxRetryAfter` 为负值表示完全信任服务端、仅由 `ctx` 兜底。生产环境仍**建议给 `ctx` 设置整体 deadline**。
+
 > ⚠ **开启重试后投递语义变为 at-least-once**：首次请求可能已在平台侧成功、客户端却没收到响应，重试会产生重复消息。仅在能接受重复或下游可去重时开启。此外三平台 webhook 均有频率限制（如钉钉 20 条/分钟，超限封禁 10 分钟），高频场景请自行限流。
 
 ## 日志

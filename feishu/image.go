@@ -68,13 +68,13 @@ func UploadImageFromFile(ctx context.Context, tenantAccessToken, path string, cl
 // tenantAccessToken 由调用方传入.
 func UploadImageFromReader(ctx context.Context, tenantAccessToken, filename string, reader io.Reader, client ...*http.Client) (*UploadImageResp, error) {
 	if tenantAccessToken == "" {
-		return nil, fmt.Errorf("feishu: tenant access token is required for upload")
+		return nil, msgbot.ValidationError(msgbot.PlatformFeishu, "UploadImage", "tenant access token is required for upload", nil)
 	}
 	if filename == "" {
-		return nil, fmt.Errorf("feishu: filename is required for upload")
+		return nil, msgbot.ValidationError(msgbot.PlatformFeishu, "UploadImage", "filename is required for upload", nil)
 	}
 	if reader == nil {
-		return nil, fmt.Errorf("feishu: image reader is nil")
+		return nil, msgbot.ValidationError(msgbot.PlatformFeishu, "UploadImage", "image reader is nil", nil)
 	}
 
 	body := &bytes.Buffer{}
