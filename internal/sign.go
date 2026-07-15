@@ -10,19 +10,18 @@ import (
 	"time"
 )
 
-// FeishuSign generates an HMAC-SHA256 signature for Feishu webhook.
-// The algorithm: base64(HMAC-SHA256(timestamp + "\n" + secret, "")).
+// FeishuSign 为飞书 webhook 生成 HMAC-SHA256 签名。
+// 算法：base64(HMAC-SHA256(timestamp + "\n" + secret, ""))。
 func FeishuSign(secret string, timestamp int64) (string, error) {
 	stringToSign := fmt.Sprintf("%d\n%s", timestamp, secret)
 	h := hmac.New(sha256.New, []byte(stringToSign))
-	// hmac key is set via New(); h.Sum computes the digest directly.
+	// hmac 密钥已通过 New() 设置；h.Sum 直接计算摘要。
 	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }
 
-// DingTalkSignedURL adds timestamp and HMAC-SHA256 sign query parameters to the
-// webhook URL. The algorithm: base64(HMAC-SHA256(secret, timestamp + "\n" + secret)).
-// Query handling goes through net/url so the result is correct whether or not the
-// base URL already carries a query string.
+// DingTalkSignedURL 向 webhook URL 添加 timestamp 和 HMAC-SHA256 的 sign
+// query 参数。算法：base64(HMAC-SHA256(secret, timestamp + "\n" + secret))。
+// query 处理经由 net/url，因此无论 base URL 是否已带 query 字符串，结果都正确。
 func DingTalkSignedURL(webhookURL, secret string) (string, error) {
 	parsed, err := url.Parse(webhookURL)
 	if err != nil {

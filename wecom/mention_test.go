@@ -8,13 +8,13 @@ import (
 	"sync"
 	"testing"
 
-	news "github.com/gtkit/msgbot"
+	"github.com/gtkit/msgbot"
 )
 
 func TestSendTextMergesMentions(t *testing.T) {
 	bot, bodies := newWeComTestWebhook(t, nil)
 
-	if err := bot.SendText(context.Background(), "hi", news.WithAtAll(), news.WithAtUsers("u1")); err != nil {
+	if err := bot.SendText(context.Background(), "hi", msgbot.WithAtAll(), msgbot.WithAtUsers("u1")); err != nil {
 		t.Fatalf("send text: %v", err)
 	}
 	body := (*bodies)[0]
@@ -29,7 +29,7 @@ func TestSendTextMergesMentions(t *testing.T) {
 func TestSendMarkdownIgnoresMentionsButSends(t *testing.T) {
 	logger := &captureLogger{}
 	var body string
-	bot, err := New(news.Config{
+	bot, err := New(msgbot.Config{
 		WebhookURL: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test",
 		Logger:     logger,
 		HTTPClient: &http.Client{Transport: wecomRoundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -42,7 +42,7 @@ func TestSendMarkdownIgnoresMentionsButSends(t *testing.T) {
 		t.Fatalf("new: %v", err)
 	}
 
-	if err := bot.SendMarkdown(context.Background(), "title", "content", news.WithAtAll()); err != nil {
+	if err := bot.SendMarkdown(context.Background(), "title", "content", msgbot.WithAtAll()); err != nil {
 		t.Fatalf("markdown with @ options must still send: %v", err)
 	}
 	if !strings.Contains(body, `"msgtype":"markdown"`) {

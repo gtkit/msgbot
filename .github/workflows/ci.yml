@@ -33,6 +33,15 @@ jobs:
       - name: Test (race + coverage)
         run: go test -race -count=1 -timeout=5m -coverprofile=coverage.out ./...
 
+      - name: Coverage gate (>= 80%)
+        run: |
+          total="$(go tool cover -func=coverage.out | awk '/^total:/ {sub(/%/,"",$3); print $3}')"
+          echo "total coverage: ${total}%"
+          awk -v c="$total" 'BEGIN { exit (c+0 >= 80) ? 0 : 1 }' || {
+            echo "coverage ${total}% is below the 80% threshold"
+            exit 1
+          }
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -43,7 +52,8 @@ jobs:
           cache: true
 
       - name: Install golangci-lint
-        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.11.4
+        # 安装脚本本身钉到与二进制一致的 tag，收紧供应链（不使用 HEAD）。
+        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/v2.11.4/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.11.4
 
       - name: Lint
         run: "$(go env GOPATH)/bin/golangci-lint run ./..."

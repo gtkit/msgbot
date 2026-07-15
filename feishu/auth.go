@@ -9,6 +9,7 @@ import (
 
 	json "github.com/gtkit/json/v2"
 
+	"github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
 )
 
@@ -54,19 +55,19 @@ func GetAccessToken(ctx context.Context, appID, appSecret string, client ...*htt
 
 	data, err := internal.PostJSON(ctx, httpClient, AccessTokenAPI, payload)
 	if err != nil {
-		return nil, fmt.Errorf("feishu: get access token: %w", err)
+		return nil, msgbot.WrapError(msgbot.PlatformFeishu, "GetAccessToken", err)
 	}
 
 	var resp accessTokenResp
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("feishu: decode token response: %w", err)
+		return nil, msgbot.DecodeError(msgbot.PlatformFeishu, "GetAccessToken", "decode token response", err)
 	}
 
 	if resp.Code != 0 {
-		return nil, fmt.Errorf("feishu: get access token: code=%d, msg=%s", resp.Code, resp.Msg)
+		return nil, msgbot.PlatformError(msgbot.PlatformFeishu, "GetAccessToken", resp.Code, resp.Msg)
 	}
 	if resp.TenantAccessToken == "" {
-		return nil, fmt.Errorf("feishu: get access token: tenant_access_token is empty")
+		return nil, msgbot.DecodeError(msgbot.PlatformFeishu, "GetAccessToken", "tenant_access_token is empty", nil)
 	}
 
 	return &AccessToken{
@@ -116,13 +117,13 @@ func (t *AccessToken) DownloadImage(ctx context.Context, imageKey, savePath stri
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("feishu: download request: %w", internal.SanitizeRequestError(err))
+		return msgbot.WrapError(msgbot.PlatformFeishu, "DownloadImage", internal.SanitizeRequestError(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	data, err := internal.ReadResponse(resp, 10<<20)
 	if err != nil {
-		return fmt.Errorf("feishu: download image: %w", err)
+		return msgbot.WrapError(msgbot.PlatformFeishu, "DownloadImage", err)
 	}
 
 	if err := os.WriteFile(savePath, data, 0o644); err != nil {

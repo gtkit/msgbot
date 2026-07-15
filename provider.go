@@ -1,6 +1,6 @@
-// Package msgbot provides a unified multi-platform messaging provider
-// for Feishu (Lark), WeCom (WeChat Work), and DingTalk webhook robots.
-// All Provider implementations are safe for concurrent use.
+// Package msgbot 提供统一的多平台消息发送能力，
+// 支持飞书（Lark）、企业微信（WeChat Work）与钉钉（DingTalk）的 webhook 机器人。
+// 所有 Provider 实现均可安全并发使用。
 package msgbot
 
 import (
@@ -9,26 +9,27 @@ import (
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	"github.com/gtkit/msgbot/internal"
 )
 
-// Provider defines the unified interface for sending messages
-// across different IM platforms via webhook.
+// Provider 定义了通过 webhook 向不同 IM 平台发送消息的统一接口。
 type Provider interface {
-	// SendText sends a plain text message to the webhook endpoint.
+	// SendText 向 webhook 端点发送纯文本消息。
 	SendText(ctx context.Context, text string, opts ...SendOption) error
-	// SendMarkdown sends a markdown-formatted message to the webhook endpoint.
+	// SendMarkdown 向 webhook 端点发送 markdown 格式消息。
 	SendMarkdown(ctx context.Context, title, content string, opts ...SendOption) error
-	// SendRichText sends a rich text (post) message to the webhook endpoint.
-	// Feishu supports this natively; other platforms degrade to markdown.
+	// SendRichText 向 webhook 端点发送富文本（post）消息。
+	// 飞书原生支持该格式，其他平台降级为 markdown。
 	SendRichText(ctx context.Context, msg *RichTextMessage) error
-	// SendImage sends an image message to the webhook endpoint.
-	// Feishu uses image_key, WeCom uses base64+md5, DingTalk uses picURL in markdown.
+	// SendImage 向 webhook 端点发送图片消息。
+	// 飞书使用 image_key，企业微信使用 base64+md5，钉钉使用 markdown 中的 picURL。
 	SendImage(ctx context.Context, img *ImageMessage) error
-	// Platform returns the platform identifier of this provider.
+	// Platform 返回该 provider 的平台标识。
 	Platform() Platform
 }
 
-// Platform represents a supported IM platform.
+// Platform 表示一个受支持的 IM 平台。
 type Platform string
 
 const (
@@ -37,31 +38,31 @@ const (
 	PlatformDingTalk Platform = "dingtalk"
 )
 
-// SendOption applies optional parameters to a message.
+// SendOption 为消息应用可选参数。
 type SendOption func(*SendOptions)
 
-// SendOptions holds the resolved send options.
+// SendOptions 保存解析后的发送选项。
 type SendOptions struct {
-	AtAll     bool     // Whether to mention all members.
-	AtUserIDs []string // Platform-specific user identifiers to mention.
+	AtAll     bool     // 是否 @所有人。
+	AtUserIDs []string // 需要 @ 的平台专属用户标识。
 }
 
-// WithAtAll enables mentioning all members in the group.
+// WithAtAll 启用群内 @所有人。
 func WithAtAll() SendOption {
 	return func(o *SendOptions) {
 		o.AtAll = true
 	}
 }
 
-// WithAtUsers specifies the users to mention.
-// Feishu: user_id or open_id list; WeCom: userid list; DingTalk: mobile list.
+// WithAtUsers 指定需要 @ 的用户。
+// 飞书：user_id 或 open_id 列表；企业微信：userid 列表；钉钉：手机号列表。
 func WithAtUsers(ids ...string) SendOption {
 	return func(o *SendOptions) {
 		o.AtUserIDs = append(o.AtUserIDs, ids...)
 	}
 }
 
-// ApplySendOptions resolves a list of SendOption into a SendOptions struct.
+// ApplySendOptions 将一组 SendOption 解析为 SendOptions 结构体。
 func ApplySendOptions(opts []SendOption) *SendOptions {
 	o := &SendOptions{}
 	for _, fn := range opts {
@@ -70,60 +71,60 @@ func ApplySendOptions(opts []SendOption) *SendOptions {
 	return o
 }
 
-// RichTextMessage represents a rich text (post) message,
-// primarily used by Feishu. Other platforms degrade to markdown.
+// RichTextMessage 表示富文本（post）消息，主要供飞书使用。
+// 其他平台降级为 markdown。
 type RichTextMessage struct {
-	Title   string          // Message title.
-	Content [][]RichTextTag // Lines of rich text elements.
+	Title   string          // 消息标题。
+	Content [][]RichTextTag // 富文本元素的行集合。
 }
 
-// RichTextTag represents a single element in a rich text line.
+// RichTextTag 表示富文本行中的单个元素。
 type RichTextTag struct {
-	Tag    string // Element type: "text", "a", "at", "img".
-	Text   string // Text content (for "text" and "a" tags).
-	Href   string // Hyperlink URL (for "a" tag).
-	UserID string // User ID to mention (for "at" tag; "all" = everyone).
-	ImgKey string // Image key (for "img" tag, Feishu only).
+	Tag    string // 元素类型："text"、"a"、"at"、"img"。
+	Text   string // 文本内容（用于 "text" 和 "a" 标签）。
+	Href   string // 超链接 URL（用于 "a" 标签）。
+	UserID string // 需要 @ 的用户 ID（用于 "at" 标签；"all" 表示所有人）。
+	ImgKey string // 图片 key（用于 "img" 标签，仅飞书）。
 }
 
-// ImageMessage represents an image to be sent.
-// Different platforms require different fields.
+// ImageMessage 表示待发送的图片。
+// 不同平台需要填写不同字段。
 type ImageMessage struct {
-	ImageKey string // Feishu: image_key obtained after uploading via Feishu API.
-	Base64   string // WeCom: base64-encoded image data (no newlines, no prefix).
-	MD5      string // WeCom: md5 hash of the raw image bytes.
-	PicURL   string // DingTalk: publicly accessible image URL.
+	ImageKey string // 飞书：通过飞书 API 上传后得到的 image_key。
+	Base64   string // 企业微信：base64 编码的图片数据（无换行、无前缀）。
+	MD5      string // 企业微信：原始图片字节的 md5 哈希。
+	PicURL   string // 钉钉：可公开访问的图片 URL。
 }
 
-// Logger defines a minimal logging interface for debugging. It is intentionally
-// small so callers can adapt any logging library in a few lines without this
-// package depending on one. If nil, no debug logs are emitted.
+// Logger 定义了用于调试的最小日志接口。它刻意保持精简，
+// 使调用方只需几行代码即可适配任意日志库，而无需本包依赖某个具体实现。
+// 为 nil 时不输出任何调试日志。
 type Logger interface {
-	// DebugContext logs a debug message with context.
+	// DebugContext 记录一条带 context 的调试日志。
 	DebugContext(ctx context.Context, msg string, args ...any)
-	// ErrorContext logs an error message with context.
+	// ErrorContext 记录一条带 context 的错误日志。
 	ErrorContext(ctx context.Context, msg string, args ...any)
 }
 
-// Config holds the common configuration for a webhook provider.
-// Config is designed to be passed by value; modifications after
-// passing to New() do not affect the created provider.
+// Config 保存 webhook provider 的通用配置。
+// Config 设计为按值传递；传入 New() 之后的修改
+// 不会影响已创建的 provider。
 type Config struct {
-	WebhookURL string        // Required: webhook URL of the robot.
-	Secret     string        // Optional: signing secret for request verification.
-	HTTPClient *http.Client  // Optional: custom HTTP client; uses default if nil.
-	Timeout    time.Duration // Optional: request timeout; defaults to 10s when HTTPClient is nil.
-	Logger     Logger        // Optional: logger for debug/error messages; nil disables logging.
-	Retry      RetryPolicy   // Optional: retry policy for failed sends; zero value disables retry.
+	WebhookURL string        // 必填：机器人的 webhook URL。
+	Secret     string        // 可选：用于请求校验的签名密钥。
+	HTTPClient *http.Client  // 可选：自定义 HTTP 客户端；为 nil 时使用默认值。
+	Timeout    time.Duration // 可选：请求超时；HTTPClient 为 nil 时默认为 10s。
+	Logger     Logger        // 可选：用于调试/错误日志的 logger；为 nil 时禁用日志。
+	Retry      RetryPolicy   // 可选：发送失败的重试策略；零值禁用重试。
 
-	// frozen is the resolved HTTP client, set once by Freeze().
-	// After freezing, GetHTTPClient() always returns this same instance.
+	// frozen 是解析后的 HTTP 客户端，由 Freeze() 设置一次。
+	// 冻结后，GetHTTPClient() 始终返回同一个实例。
 	frozen *http.Client
 }
 
-// Freeze resolves the HTTP client once and stores it internally.
-// This must be called during provider construction (New) so that
-// GetHTTPClient() never allocates a new client on the hot path.
+// Freeze 一次性解析 HTTP 客户端并将其保存在内部。
+// 必须在 provider 构造（New）期间调用，以确保
+// GetHTTPClient() 不会在热路径上分配新的客户端。
 func (c *Config) Freeze() {
 	if c.HTTPClient != nil {
 		c.frozen = c.HTTPClient
@@ -136,27 +137,35 @@ func (c *Config) Freeze() {
 	c.frozen = &http.Client{Timeout: timeout}
 }
 
-// GetHTTPClient returns the frozen HTTP client.
-// Freeze() must have been called beforehand (all New functions do this).
+// GetHTTPClient 返回已冻结的 HTTP 客户端。
+// 调用前必须已执行 Freeze()（所有 New 函数都会这样做）。
 func (c *Config) GetHTTPClient() *http.Client {
-	return c.frozen
+	if c.frozen != nil {
+		return c.frozen
+	}
+	// 兜底：未经 Freeze 就被直接使用（例如外部直接调用 Config.Send）时，
+	// 返回带默认超时的共享 client，绝不落到无超时的 http.DefaultClient。
+	if c.HTTPClient != nil {
+		return c.HTTPClient
+	}
+	return internal.DefaultClient()
 }
 
-// LogDebug logs a debug message if the logger is configured.
+// LogDebug 在已配置 logger 时记录一条调试日志。
 func (c *Config) LogDebug(ctx context.Context, msg string, args ...any) {
 	if c.Logger != nil {
 		c.Logger.DebugContext(ctx, msg, args...)
 	}
 }
 
-// LogError logs an error message if the logger is configured.
+// LogError 在已配置 logger 时记录一条错误日志。
 func (c *Config) LogError(ctx context.Context, msg string, args ...any) {
 	if c.Logger != nil {
 		c.Logger.ErrorContext(ctx, msg, args...)
 	}
 }
 
-// Response represents a generic API response from IM platforms.
+// Response 表示 IM 平台返回的通用 API 响应。
 type Response struct {
 	Code    int    `json:"code,omitempty"`
 	ErrCode int    `json:"errcode,omitempty"`
@@ -164,7 +173,7 @@ type Response struct {
 	Msg     string `json:"msg,omitempty"`
 }
 
-// code returns the effective business code, preferring Code over ErrCode.
+// code 返回有效的业务码，优先取 Code，其次取 ErrCode。
 func (r *Response) code() int {
 	if r.Code != 0 {
 		return r.Code
@@ -172,7 +181,7 @@ func (r *Response) code() int {
 	return r.ErrCode
 }
 
-// message returns the effective message, preferring Msg over ErrMsg.
+// message 返回有效的消息文本，优先取 Msg，其次取 ErrMsg。
 func (r *Response) message() string {
 	if r.Msg != "" {
 		return r.Msg
@@ -180,7 +189,7 @@ func (r *Response) message() string {
 	return r.ErrMsg
 }
 
-// Err returns a non-nil error if the response indicates failure.
+// Err 在响应表示失败时返回非 nil 的 error。
 func (r *Response) Err() error {
 	if code := r.code(); code != 0 {
 		return fmt.Errorf("api error: code=%d, msg=%s", code, r.message())
@@ -188,21 +197,21 @@ func (r *Response) Err() error {
 	return nil
 }
 
-// Stats tracks provider-level metrics using atomic operations for lock-free,
-// concurrent-safe access without any mutex overhead.
+// Stats 使用 atomic 操作跟踪 provider 级别的指标，
+// 实现无锁、并发安全的访问，且不带任何 mutex 开销。
 type Stats struct {
 	totalSent  atomic.Int64
 	totalError atomic.Int64
 }
 
-// IncSent increments the successful send counter atomically.
+// IncSent 以 atomic 方式递增成功发送计数器。
 func (s *Stats) IncSent() { s.totalSent.Add(1) }
 
-// IncError increments the error counter atomically.
+// IncError 以 atomic 方式递增错误计数器。
 func (s *Stats) IncError() { s.totalError.Add(1) }
 
-// TotalSent returns the total number of successfully sent messages.
+// TotalSent 返回成功发送的消息总数。
 func (s *Stats) TotalSent() int64 { return s.totalSent.Load() }
 
-// TotalError returns the total number of failed message attempts.
+// TotalError 返回失败的消息尝试总数。
 func (s *Stats) TotalError() int64 { return s.totalError.Load() }

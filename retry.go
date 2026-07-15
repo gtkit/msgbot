@@ -7,31 +7,30 @@ import (
 	"time"
 )
 
-// RetryPolicy controls how a failed send is retried. The zero value disables
-// retry (MaxRetries: 0), preserving single-attempt send semantics.
+// RetryPolicy 控制发送失败后如何重试。零值禁用重试（MaxRetries: 0），
+// 保持单次尝试的发送语义。
 //
-// Enabling retry makes delivery at-least-once: a request may have already
-// succeeded on the platform before the client observed a failure, so a retry
-// can produce a duplicate message. Enable it only when duplicates are
-// acceptable or deduplicated downstream.
+// 启用重试会使投递变为 at-least-once：请求可能在客户端观察到失败之前就已在
+// 平台端成功，因此一次重试可能产生重复消息。仅在可接受重复、或下游会去重时
+// 才启用。
 type RetryPolicy struct {
-	// MaxRetries is the number of additional attempts after the first.
-	// 0 disables retry. Negative values are treated as 0.
+	// MaxRetries 是首次尝试之后的额外重试次数。
+	// 0 禁用重试。负值按 0 处理。
 	MaxRetries int
-	// InitialDelay is the base backoff before the first retry.
-	// Defaults to 200ms when zero and retry is enabled.
+	// InitialDelay 是首次重试前的基础退避时长。
+	// 为零且启用重试时默认为 200ms。
 	InitialDelay time.Duration
-	// MaxDelay caps a single backoff interval. Defaults to 3s when zero.
+	// MaxDelay 限制单次退避间隔的上限。为零时默认为 3s。
 	MaxDelay time.Duration
-	// Jitter adds randomized jitter to each backoff to avoid thundering herds.
+	// Jitter 为每次退避加入随机 jitter，以避免 thundering herd。
 	Jitter bool
 }
 
-// do runs fn with retries according to the policy. Only errors classified as
-// retryable are retried; validation, 401/403, non-retryable platform codes,
-// decode errors, and canceled/expired contexts are returned immediately. The
-// total wait is bounded by ctx; when ctx ends during a backoff, the last
-// attempt's error is returned.
+// do 按策略带重试地执行 fn。只有被分类为可重试的错误才会重试；校验错误、
+// 401/403、不可重试的平台码、解码错误，以及已取消/已超时的 context 会立即返回。
+// 总等待时长受 ctx 约束；当 ctx 在退避期间结束时，返回 errors.Join(最后一次错误,
+// ctx.Err())——既能被 errors.Is(context.Canceled/DeadlineExceeded) 命中，也保留
+// 最后一次尝试的原因。
 func (p RetryPolicy) do(ctx context.Context, fn func(context.Context) error) error {
 	maxRetries := max(p.MaxRetries, 0)
 	initial := p.InitialDelay
@@ -57,25 +56,22 @@ func (p RetryPolicy) do(ctx context.Context, fn func(context.Context) error) err
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return err
+			return errors.Join(err, ctx.Err())
 		case <-timer.C:
 		}
 	}
 }
 
-// backoff computes the wait before the next attempt. A server-advised
-// Retry-After (carried on the structured error) takes precedence; otherwise the
-// delay grows exponentially from initial, is capped at maxDelay, and optionally
-// gets equal jitter (half fixed, half random).
+// backoff 计算下一次尝试前的等待时长。服务端建议的 Retry-After（携带在结构化
+// 错误上）优先生效，并被完整尊重（不受 maxDelay 截断，总时长由 do 中的 ctx
+// 兜底）；否则退避时长从 initial 起按指数增长，被限制在 maxDelay 内，并可选地
+// 加入 equal jitter（一半固定、一半随机）。
 func backoff(initial, maxDelay time.Duration, attempt int, err error, jitter bool) time.Duration {
 	if e, ok := errors.AsType[*Error](err); ok && e.RetryAfter > 0 {
-		if e.RetryAfter > maxDelay {
-			return maxDelay
-		}
 		return e.RetryAfter
 	}
 
-	d := initial << attempt // exponential; attempt starts at 0.
+	d := initial << attempt // 指数增长；attempt 从 0 开始。
 	if d <= 0 || d > maxDelay {
 		d = maxDelay
 	}

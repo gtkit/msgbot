@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	news "github.com/gtkit/msgbot"
+	"github.com/gtkit/msgbot"
 )
 
 // SendImageFromURL 通过公网图片 URL 发送图片消息到钉钉群.
@@ -13,5 +13,5 @@ func (w *Webhook) SendImageFromURL(ctx context.Context, picURL string) error {
 	if picURL == "" {
 		return fmt.Errorf("dingtalk: picURL is required")
 	}
-	return w.SendImage(ctx, &news.ImageMessage{PicURL: picURL})
+	return w.SendImage(ctx, &msgbot.ImageMessage{PicURL: picURL})
 }

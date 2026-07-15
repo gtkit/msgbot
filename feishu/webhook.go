@@ -1,8 +1,8 @@
-// Package feishu implements the news.Provider interface for
-// Feishu (Lark) custom robot webhooks. It supports text, rich text (post),
-// image, and markdown (interactive card) message types with optional signing.
+// Package feishu 实现了飞书（Lark）自定义机器人 webhook 的 msgbot.Provider 接口。
+// 支持 text、rich text（post）、image 和 markdown（interactive 卡片）消息类型，
+// 并可选签名。
 //
-// All methods are safe for concurrent use.
+// 所有方法均可安全并发使用。
 package feishu
 
 import (
@@ -13,22 +13,22 @@ import (
 	"strings"
 	"time"
 
-	news "github.com/gtkit/msgbot"
+	"github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
 )
 
-// compile-time interface check.
-var _ news.Provider = (*Webhook)(nil)
+// 编译期接口检查。
+var _ msgbot.Provider = (*Webhook)(nil)
 
-// Webhook is a Feishu webhook robot provider.
-// All fields are immutable after construction; safe for concurrent use.
+// Webhook 是飞书 webhook 机器人 Provider。
+// 所有字段在构造后不可变，可安全并发使用。
 type Webhook struct {
-	cfg   news.Config
-	stats news.Stats
+	cfg   msgbot.Config
+	stats msgbot.Stats
 }
 
-// New creates a new Feishu webhook provider.
-func New(cfg news.Config) (*Webhook, error) {
+// New 创建一个新的飞书 webhook Provider。
+func New(cfg msgbot.Config) (*Webhook, error) {
 	if cfg.WebhookURL == "" {
 		return nil, fmt.Errorf("feishu: webhook URL is required")
 	}
@@ -39,25 +39,25 @@ func New(cfg news.Config) (*Webhook, error) {
 	return &Webhook{cfg: cfg}, nil
 }
 
-// Platform returns the platform identifier.
-func (w *Webhook) Platform() news.Platform { return news.PlatformFeishu }
+// Platform 返回平台标识。
+func (w *Webhook) Platform() msgbot.Platform { return msgbot.PlatformFeishu }
 
-// Stats returns the provider's send statistics.
-func (w *Webhook) Stats() *news.Stats { return &w.stats }
+// Stats 返回 Provider 的发送统计信息。
+func (w *Webhook) Stats() *msgbot.Stats { return &w.stats }
 
-// atEscaper escapes characters that would break a Feishu <at> tag structure.
+// atEscaper 转义会破坏飞书 <at> 标签结构的字符。
 var atEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
 
-// escapeAt escapes a user identifier for safe interpolation into an <at> tag.
+// escapeAt 转义用户标识符，以便安全地拼接进 <at> 标签。
 func escapeAt(s string) string { return atEscaper.Replace(s) }
 
-// SendText sends a plain text message to the Feishu group.
-// Mentioned user identifiers are escaped before being placed in <at> tags.
-func (w *Webhook) SendText(ctx context.Context, text string, opts ...news.SendOption) error {
+// SendText 发送纯文本消息到飞书群。
+// 被 @ 的用户标识符在放入 <at> 标签前会先经过转义。
+func (w *Webhook) SendText(ctx context.Context, text string, opts ...msgbot.SendOption) error {
 	if text == "" {
-		return news.ValidationError(news.PlatformFeishu, "SendText", "text content is empty", nil)
+		return msgbot.ValidationError(msgbot.PlatformFeishu, "SendText", "text content is empty", nil)
 	}
-	o := news.ApplySendOptions(opts)
+	o := msgbot.ApplySendOptions(opts)
 
 	var b strings.Builder
 	b.WriteString(text)
@@ -79,16 +79,16 @@ func (w *Webhook) SendText(ctx context.Context, text string, opts ...news.SendOp
 	})
 }
 
-// SendMarkdown sends a markdown message as an interactive card.
-// Feishu webhook does not natively support markdown msg_type;
-// this wraps content in an interactive card with markdown rendering.
-// Mentions use the interactive-card <at id=...></at> syntax, which differs
-// from the text-message <at user_id="...">...</at> syntax.
-func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts ...news.SendOption) error {
+// SendMarkdown 以 interactive 卡片形式发送 markdown 消息。
+// 飞书 webhook 原生不支持 markdown msg_type，
+// 因此将内容包装进带 markdown 渲染的 interactive 卡片中。
+// @ 使用 interactive 卡片的 <at id=...></at> 语法，
+// 与文本消息的 <at user_id="...">...</at> 语法不同。
+func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts ...msgbot.SendOption) error {
 	if content == "" {
-		return news.ValidationError(news.PlatformFeishu, "SendMarkdown", "markdown content is empty", nil)
+		return msgbot.ValidationError(msgbot.PlatformFeishu, "SendMarkdown", "markdown content is empty", nil)
 	}
-	o := news.ApplySendOptions(opts)
+	o := msgbot.ApplySendOptions(opts)
 
 	md := content
 	if mentions := cardMentions(o); mentions != "" {
@@ -114,8 +114,8 @@ func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts 
 	})
 }
 
-// cardMentions renders send options as interactive-card <at> elements.
-func cardMentions(o *news.SendOptions) string {
+// cardMentions 将发送选项渲染为 interactive 卡片的 <at> 元素。
+func cardMentions(o *msgbot.SendOptions) string {
 	var parts []string
 	if o.AtAll {
 		parts = append(parts, "<at id=all></at>")
@@ -126,12 +126,12 @@ func cardMentions(o *news.SendOptions) string {
 	return strings.Join(parts, " ")
 }
 
-// SendRichText sends a rich text (post) message to the Feishu group.
-// This is Feishu's native rich text format supporting text, links,
-// mentions, and images in a structured layout.
-func (w *Webhook) SendRichText(ctx context.Context, msg *news.RichTextMessage) error {
+// SendRichText 发送富文本（post）消息到飞书群。
+// 这是飞书原生的富文本格式，以结构化布局支持文本、链接、
+// @ 以及图片。
+func (w *Webhook) SendRichText(ctx context.Context, msg *msgbot.RichTextMessage) error {
 	if msg == nil {
-		return news.ValidationError(news.PlatformFeishu, "SendRichText", "rich text message is nil", nil)
+		return msgbot.ValidationError(msgbot.PlatformFeishu, "SendRichText", "rich text message is nil", nil)
 	}
 
 	lines := make([]any, 0, len(msg.Content))
@@ -168,11 +168,11 @@ func (w *Webhook) SendRichText(ctx context.Context, msg *news.RichTextMessage) e
 	})
 }
 
-// SendImage sends an image message to the Feishu group.
-// The ImageKey field must be set (obtained by uploading via Feishu open API).
-func (w *Webhook) SendImage(ctx context.Context, img *news.ImageMessage) error {
+// SendImage 发送图片消息到飞书群。
+// 必须设置 ImageKey 字段（通过飞书 open API 上传获得）。
+func (w *Webhook) SendImage(ctx context.Context, img *msgbot.ImageMessage) error {
 	if img == nil || img.ImageKey == "" {
-		return news.ValidationError(news.PlatformFeishu, "SendImage", "image_key is required", nil)
+		return msgbot.ValidationError(msgbot.PlatformFeishu, "SendImage", "image_key is required", nil)
 	}
 
 	return w.send(ctx, "SendImage", map[string]any{
@@ -181,12 +181,11 @@ func (w *Webhook) SendImage(ctx context.Context, img *news.ImageMessage) error {
 	})
 }
 
-// send dispatches the payload through the shared send path, applying Feishu
-// signing when a secret is configured. Signing is regenerated on every attempt
-// so retries carry a fresh timestamp, and the payload is cloned so retries do
-// not accumulate stale timestamp/sign fields.
+// send 通过共享发送路径分发 payload，在配置了 Secret 时应用飞书签名。
+// 签名在每次尝试时重新生成，使重试携带全新的 timestamp；payload 会被克隆，
+// 以避免重试累积陈旧的 timestamp/sign 字段。
 func (w *Webhook) send(ctx context.Context, op string, payload map[string]any) error {
-	return w.cfg.Send(ctx, &w.stats, news.PlatformFeishu, op, func() (string, any, error) {
+	return w.cfg.Send(ctx, &w.stats, msgbot.PlatformFeishu, op, func() (string, any, error) {
 		if w.cfg.Secret == "" {
 			return w.cfg.WebhookURL, payload, nil
 		}
@@ -202,33 +201,33 @@ func (w *Webhook) send(ctx context.Context, op string, payload map[string]any) e
 	})
 }
 
-// BuildRichText creates a simple rich text message with title, body text,
-// an optional hyperlink, and an optional @all mention.
-func BuildRichText(title, text string, link *news.RichTextTag, atAll bool) *news.RichTextMessage {
-	var elems []news.RichTextTag
+// BuildRichText 创建一条简单的富文本消息，包含标题、正文文本、
+// 可选的超链接以及可选的 @all。
+func BuildRichText(title, text string, link *msgbot.RichTextTag, atAll bool) *msgbot.RichTextMessage {
+	var elems []msgbot.RichTextTag
 	if text != "" {
-		elems = append(elems, news.RichTextTag{Tag: "text", Text: text})
+		elems = append(elems, msgbot.RichTextTag{Tag: "text", Text: text})
 	}
 	if link != nil {
 		elems = append(elems, *link)
 	}
 	if atAll {
-		elems = append(elems, news.RichTextTag{Tag: "at", UserID: "all"})
+		elems = append(elems, msgbot.RichTextTag{Tag: "at", UserID: "all"})
 	}
-	return &news.RichTextMessage{
+	return &msgbot.RichTextMessage{
 		Title:   title,
-		Content: [][]news.RichTextTag{elems},
+		Content: [][]msgbot.RichTextTag{elems},
 	}
 }
 
-// BuildRichTextLines constructs a RichTextMessage from multiple text lines,
-// each provided as a slice of RichTextTag elements.
-func BuildRichTextLines(title string, lines ...[]news.RichTextTag) *news.RichTextMessage {
-	content := make([][]news.RichTextTag, 0, len(lines))
+// BuildRichTextLines 从多行文本构造 RichTextMessage，
+// 每行以一个 RichTextTag 元素切片的形式提供。
+func BuildRichTextLines(title string, lines ...[]msgbot.RichTextTag) *msgbot.RichTextMessage {
+	content := make([][]msgbot.RichTextTag, 0, len(lines))
 	for _, line := range lines {
 		if len(line) > 0 {
 			content = append(content, line)
 		}
 	}
-	return &news.RichTextMessage{Title: title, Content: content}
+	return &msgbot.RichTextMessage{Title: title, Content: content}
 }

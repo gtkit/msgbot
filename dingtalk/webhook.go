@@ -1,8 +1,7 @@
-// Package dingtalk implements the news.Provider interface for
-// DingTalk custom robot webhooks. It supports text, markdown, link,
-// ActionCard, and FeedCard message types with optional signing.
+// Package dingtalk 实现了钉钉自定义机器人 webhook 的 msgbot.Provider 接口。
+// 支持 text、markdown、link、ActionCard 和 FeedCard 消息类型，并可选签名。
 //
-// All methods are safe for concurrent use.
+// 所有方法均可安全并发使用。
 package dingtalk
 
 import (
@@ -10,22 +9,22 @@ import (
 	"fmt"
 	"strings"
 
-	news "github.com/gtkit/msgbot"
+	"github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
 )
 
-// compile-time interface check.
-var _ news.Provider = (*Webhook)(nil)
+// 编译期接口检查。
+var _ msgbot.Provider = (*Webhook)(nil)
 
-// Webhook is a DingTalk webhook robot provider.
-// All fields are immutable after construction; safe for concurrent use.
+// Webhook 是钉钉 webhook 机器人 Provider。
+// 所有字段在构造后不可变，可安全并发使用。
 type Webhook struct {
-	cfg   news.Config
-	stats news.Stats
+	cfg   msgbot.Config
+	stats msgbot.Stats
 }
 
-// New creates a new DingTalk webhook provider.
-func New(cfg news.Config) (*Webhook, error) {
+// New 创建一个新的钉钉 webhook Provider。
+func New(cfg msgbot.Config) (*Webhook, error) {
 	if cfg.WebhookURL == "" {
 		return nil, fmt.Errorf("dingtalk: webhook URL is required")
 	}
@@ -36,20 +35,20 @@ func New(cfg news.Config) (*Webhook, error) {
 	return &Webhook{cfg: cfg}, nil
 }
 
-// Platform returns the platform identifier.
-func (w *Webhook) Platform() news.Platform { return news.PlatformDingTalk }
+// Platform 返回平台标识。
+func (w *Webhook) Platform() msgbot.Platform { return msgbot.PlatformDingTalk }
 
-// Stats returns the provider's send statistics.
-func (w *Webhook) Stats() *news.Stats { return &w.stats }
+// Stats 返回 Provider 的发送统计信息。
+func (w *Webhook) Stats() *msgbot.Stats { return &w.stats }
 
-// SendText sends a plain text message to the DingTalk group.
-// A DingTalk mention notifies a user only when @<mobile> appears in the body,
-// so mentioned mobiles are appended to the content in addition to at.atMobiles.
-func (w *Webhook) SendText(ctx context.Context, text string, opts ...news.SendOption) error {
+// SendText 发送纯文本消息到钉钉群。
+// 钉钉只有在正文中出现 @<mobile> 时才会 @ 通知到用户，
+// 因此除了 at.atMobiles 之外，被 @ 的手机号也会追加到 content 中。
+func (w *Webhook) SendText(ctx context.Context, text string, opts ...msgbot.SendOption) error {
 	if text == "" {
-		return news.ValidationError(news.PlatformDingTalk, "SendText", "text content is empty", nil)
+		return msgbot.ValidationError(msgbot.PlatformDingTalk, "SendText", "text content is empty", nil)
 	}
-	o := news.ApplySendOptions(opts)
+	o := msgbot.ApplySendOptions(opts)
 
 	content := text
 	if mentions := atMobiles(o.AtUserIDs); mentions != "" {
@@ -63,18 +62,18 @@ func (w *Webhook) SendText(ctx context.Context, text string, opts ...news.SendOp
 	})
 }
 
-// SendMarkdown sends a markdown message to the DingTalk group.
-// DingTalk supports: headers, bold, links, images, ordered/unordered lists, quotes.
-// The title is required by DingTalk. Mentioned mobiles are appended to the body
-// (@<mobile>) so the mention notifies, in addition to at.atMobiles.
-func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts ...news.SendOption) error {
+// SendMarkdown 发送 markdown 消息到钉钉群。
+// 钉钉支持：标题、加粗、链接、图片、有序/无序列表、引用。
+// title 是钉钉必填项。除了 at.atMobiles 之外，被 @ 的手机号也会追加到正文
+// （@<mobile>）中，使 @ 能够通知到用户。
+func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts ...msgbot.SendOption) error {
 	if content == "" {
-		return news.ValidationError(news.PlatformDingTalk, "SendMarkdown", "markdown content is empty", nil)
+		return msgbot.ValidationError(msgbot.PlatformDingTalk, "SendMarkdown", "markdown content is empty", nil)
 	}
 	if title == "" {
-		return news.ValidationError(news.PlatformDingTalk, "SendMarkdown", "markdown title is required", nil)
+		return msgbot.ValidationError(msgbot.PlatformDingTalk, "SendMarkdown", "markdown title is required", nil)
 	}
-	o := news.ApplySendOptions(opts)
+	o := msgbot.ApplySendOptions(opts)
 
 	text := content
 	if mentions := atMobiles(o.AtUserIDs); mentions != "" {
@@ -91,26 +90,26 @@ func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts 
 	})
 }
 
-// SendRichText converts a RichTextMessage to markdown and sends it.
-// DingTalk does not natively support Feishu-style rich text. The title is
-// required by DingTalk markdown.
-func (w *Webhook) SendRichText(ctx context.Context, msg *news.RichTextMessage) error {
+// SendRichText 将 RichTextMessage 转换为 markdown 后发送。
+// 钉钉原生不支持飞书风格的富文本。title 是钉钉 markdown
+// 的必填项。
+func (w *Webhook) SendRichText(ctx context.Context, msg *msgbot.RichTextMessage) error {
 	if msg == nil {
-		return news.ValidationError(news.PlatformDingTalk, "SendRichText", "rich text message is nil", nil)
+		return msgbot.ValidationError(msgbot.PlatformDingTalk, "SendRichText", "rich text message is nil", nil)
 	}
 	if msg.Title == "" {
-		return news.ValidationError(news.PlatformDingTalk, "SendRichText", "rich text title is required", nil)
+		return msgbot.ValidationError(msgbot.PlatformDingTalk, "SendRichText", "rich text title is required", nil)
 	}
-	md := news.RichTextToMarkdown(msg)
+	md := msgbot.RichTextToMarkdown(msg)
 	return w.SendMarkdown(ctx, msg.Title, md)
 }
 
-// SendImage embeds an image URL in a markdown message.
-// DingTalk webhook does not have a dedicated image msg_type;
-// images are sent via markdown ![alt](picURL).
-func (w *Webhook) SendImage(ctx context.Context, img *news.ImageMessage) error {
+// SendImage 将图片 URL 嵌入 markdown 消息中发送。
+// 钉钉 webhook 没有专门的 image msg_type，
+// 图片通过 markdown ![alt](picURL) 发送。
+func (w *Webhook) SendImage(ctx context.Context, img *msgbot.ImageMessage) error {
 	if img == nil || img.PicURL == "" {
-		return news.ValidationError(news.PlatformDingTalk, "SendImage", "picURL is required for image", nil)
+		return msgbot.ValidationError(msgbot.PlatformDingTalk, "SendImage", "picURL is required for image", nil)
 	}
 
 	return w.send(ctx, "SendImage", map[string]any{
@@ -122,7 +121,7 @@ func (w *Webhook) SendImage(ctx context.Context, img *news.ImageMessage) error {
 	})
 }
 
-// atMobiles renders mentioned mobiles as "@m1 @m2" for injection into the body.
+// atMobiles 将被 @ 的手机号渲染为 "@m1 @m2"，以便注入正文。
 func atMobiles(mobiles []string) string {
 	if len(mobiles) == 0 {
 		return ""
@@ -134,10 +133,10 @@ func atMobiles(mobiles []string) string {
 	return strings.Join(parts, " ")
 }
 
-// SendLink sends a link message (DingTalk-specific).
+// SendLink 发送 link 消息（钉钉特有）。
 func (w *Webhook) SendLink(ctx context.Context, title, text, messageURL, picURL string) error {
 	if title == "" || text == "" || messageURL == "" {
-		return news.ValidationError(news.PlatformDingTalk, "SendLink", "title, text, and messageURL are required for link", nil)
+		return msgbot.ValidationError(msgbot.PlatformDingTalk, "SendLink", "title, text, and messageURL are required for link", nil)
 	}
 
 	return w.send(ctx, "SendLink", map[string]any{
@@ -151,26 +150,26 @@ func (w *Webhook) SendLink(ctx context.Context, title, text, messageURL, picURL 
 	})
 }
 
-// ActionCard represents a DingTalk ActionCard message configuration.
+// ActionCard 表示钉钉 ActionCard 消息的配置。
 type ActionCard struct {
-	Title          string   // Card title.
-	Text           string   // Card body in markdown.
-	SingleTitle    string   // Single button text (whole-card jump).
-	SingleURL      string   // Single button URL.
-	BtnOrientation string   // "0" for vertical, "1" for horizontal.
-	Buttons        []Button // Independent buttons (exclusive with SingleTitle).
+	Title          string   // 卡片标题。
+	Text           string   // markdown 格式的卡片正文。
+	SingleTitle    string   // 单按钮文本（整卡跳转）。
+	SingleURL      string   // 单按钮 URL。
+	BtnOrientation string   // "0" 表示竖直排列，"1" 表示水平排列。
+	Buttons        []Button // 独立按钮（与 SingleTitle 互斥）。
 }
 
-// Button represents a button in a DingTalk ActionCard.
+// Button 表示钉钉 ActionCard 中的一个按钮。
 type Button struct {
-	Title     string // Button text.
-	ActionURL string // Button target URL.
+	Title     string // 按钮文本。
+	ActionURL string // 按钮跳转 URL。
 }
 
-// SendActionCard sends an ActionCard message (DingTalk-specific).
+// SendActionCard 发送 ActionCard 消息（钉钉特有）。
 func (w *Webhook) SendActionCard(ctx context.Context, card *ActionCard) error {
 	if card == nil {
-		return news.ValidationError(news.PlatformDingTalk, "SendActionCard", "action card is nil", nil)
+		return msgbot.ValidationError(msgbot.PlatformDingTalk, "SendActionCard", "action card is nil", nil)
 	}
 
 	ac := map[string]any{
@@ -199,17 +198,17 @@ func (w *Webhook) SendActionCard(ctx context.Context, card *ActionCard) error {
 	})
 }
 
-// FeedLink represents one item in a DingTalk FeedCard.
+// FeedLink 表示钉钉 FeedCard 中的一项。
 type FeedLink struct {
-	Title      string // Item title.
-	MessageURL string // Item URL.
-	PicURL     string // Item thumbnail URL.
+	Title      string // 条目标题。
+	MessageURL string // 条目 URL。
+	PicURL     string // 条目缩略图 URL。
 }
 
-// SendFeedCard sends a FeedCard message (DingTalk-specific).
+// SendFeedCard 发送 FeedCard 消息（钉钉特有）。
 func (w *Webhook) SendFeedCard(ctx context.Context, links []FeedLink) error {
 	if len(links) == 0 {
-		return news.ValidationError(news.PlatformDingTalk, "SendFeedCard", "feed card requires at least one link", nil)
+		return msgbot.ValidationError(msgbot.PlatformDingTalk, "SendFeedCard", "feed card requires at least one link", nil)
 	}
 
 	items := make([]map[string]any, 0, len(links))
@@ -227,8 +226,8 @@ func (w *Webhook) SendFeedCard(ctx context.Context, links []FeedLink) error {
 	})
 }
 
-// buildAt constructs the "at" section of a DingTalk message payload.
-func buildAt(o *news.SendOptions) map[string]any {
+// buildAt 构造钉钉消息 payload 中的 "at" 部分。
+func buildAt(o *msgbot.SendOptions) map[string]any {
 	at := map[string]any{"isAtAll": o.AtAll}
 	if len(o.AtUserIDs) > 0 {
 		at["atMobiles"] = o.AtUserIDs
@@ -236,11 +235,11 @@ func buildAt(o *news.SendOptions) map[string]any {
 	return at
 }
 
-// send dispatches the payload through the shared send path, signing the URL
-// when a secret is configured. Signing is regenerated on every attempt so the
-// timestamp stays within DingTalk's validity window across retries.
+// send 通过共享发送路径分发 payload，在配置了 Secret 时对 URL 签名。
+// 签名在每次尝试时重新生成，使 timestamp 在多次重试中始终处于
+// 钉钉的有效期窗口内。
 func (w *Webhook) send(ctx context.Context, op string, payload map[string]any) error {
-	return w.cfg.Send(ctx, &w.stats, news.PlatformDingTalk, op, func() (string, any, error) {
+	return w.cfg.Send(ctx, &w.stats, msgbot.PlatformDingTalk, op, func() (string, any, error) {
 		url := w.cfg.WebhookURL
 		if w.cfg.Secret != "" {
 			signed, err := internal.DingTalkSignedURL(url, w.cfg.Secret)

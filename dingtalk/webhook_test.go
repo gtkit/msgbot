@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	news "github.com/gtkit/msgbot"
+	"github.com/gtkit/msgbot"
 )
 
 func TestWebhookSendLink(t *testing.T) {
 	var body string
-	bot, err := New(news.Config{
+	bot, err := New(msgbot.Config{
 		WebhookURL: "https://oapi.dingtalk.com/robot/send?access_token=test",
 		HTTPClient: &http.Client{Transport: dingtalkRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			data, _ := io.ReadAll(req.Body)
@@ -33,10 +33,10 @@ func TestWebhookSendLink(t *testing.T) {
 }
 
 func TestWebhookValidation(t *testing.T) {
-	if _, err := New(news.Config{}); err == nil {
+	if _, err := New(msgbot.Config{}); err == nil {
 		t.Fatal("expected missing url error")
 	}
-	bot, err := New(news.Config{WebhookURL: "https://oapi.dingtalk.com/robot/send?access_token=test"})
+	bot, err := New(msgbot.Config{WebhookURL: "https://oapi.dingtalk.com/robot/send?access_token=test"})
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
@@ -54,19 +54,19 @@ func TestWebhookSendVariants(t *testing.T) {
 		`{"errcode":0,"errmsg":"ok"}`,
 	})
 
-	if bot.Platform() != news.PlatformDingTalk {
+	if bot.Platform() != msgbot.PlatformDingTalk {
 		t.Fatal("platform mismatch")
 	}
 	if bot.Stats() == nil {
 		t.Fatal("stats is nil")
 	}
-	if err := bot.SendText(context.Background(), "hello", news.WithAtAll()); err != nil {
+	if err := bot.SendText(context.Background(), "hello", msgbot.WithAtAll()); err != nil {
 		t.Fatalf("send text: %v", err)
 	}
-	if err := bot.SendMarkdown(context.Background(), "title", "body", news.WithAtUsers("13800000000")); err != nil {
+	if err := bot.SendMarkdown(context.Background(), "title", "body", msgbot.WithAtUsers("13800000000")); err != nil {
 		t.Fatalf("send markdown: %v", err)
 	}
-	if err := bot.SendRichText(context.Background(), &news.RichTextMessage{Title: "title", Content: [][]news.RichTextTag{{{Tag: "text", Text: "hello"}}}}); err != nil {
+	if err := bot.SendRichText(context.Background(), &msgbot.RichTextMessage{Title: "title", Content: [][]msgbot.RichTextTag{{{Tag: "text", Text: "hello"}}}}); err != nil {
 		t.Fatalf("send rich text: %v", err)
 	}
 	if err := bot.SendImageFromURL(context.Background(), "https://example.com/a.png"); err != nil {
@@ -100,7 +100,7 @@ func TestWebhookErrorsAndToken(t *testing.T) {
 	if err := bot.SendRichText(context.Background(), nil); err == nil {
 		t.Fatal("expected rich text validation error")
 	}
-	if err := bot.SendImage(context.Background(), &news.ImageMessage{}); err == nil {
+	if err := bot.SendImage(context.Background(), &msgbot.ImageMessage{}); err == nil {
 		t.Fatal("expected image validation error")
 	}
 	if err := bot.SendLink(context.Background(), "", "text", "https://example.com", ""); err == nil {
@@ -160,7 +160,7 @@ func newDingTalkTestWebhook(t *testing.T, responses []string) (*Webhook, *[]stri
 	t.Helper()
 
 	var bodies []string
-	bot, err := New(news.Config{
+	bot, err := New(msgbot.Config{
 		WebhookURL: "https://oapi.dingtalk.com/robot/send?access_token=test",
 		HTTPClient: &http.Client{Transport: dingtalkRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			data, _ := io.ReadAll(req.Body)

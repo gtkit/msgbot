@@ -3,6 +3,7 @@ package feishu
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -11,7 +12,7 @@ import (
 
 	json "github.com/gtkit/json/v2"
 
-	news "github.com/gtkit/msgbot"
+	"github.com/gtkit/msgbot"
 )
 
 func TestNewApp(t *testing.T) {
@@ -127,7 +128,7 @@ func TestApp_SendTextMessageValidation(t *testing.T) {
 }
 
 func TestApp_SendImageMessage(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "news-feishu-image-*.png")
+	file, err := os.CreateTemp(t.TempDir(), "msgbot-feishu-image-*.png")
 	if err != nil {
 		t.Fatalf("create temp image: %v", err)
 	}
@@ -210,8 +211,12 @@ func TestApp_SendMessageAPIError(t *testing.T) {
 	app := newTestApp(t, rt)
 
 	err := app.SendTextMessage(context.Background(), "ou_xxx", "hello")
-	if err == nil || !strings.Contains(err.Error(), "code=999, msg=denied") {
-		t.Fatalf("want api error, got %v", err)
+	var e *msgbot.Error
+	if !errors.As(err, &e) || e.Kind != msgbot.KindPlatform || e.Code != 999 {
+		t.Fatalf("want structured platform error code 999, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "denied") {
+		t.Fatalf("error should carry the platform message, got %v", err)
 	}
 }
 
@@ -224,17 +229,17 @@ func TestWebhookSendVariants(t *testing.T) {
 			{status: http.StatusOK, body: `{"code":0,"msg":"ok"}`},
 		},
 	}
-	bot, err := New(news.Config{
+	bot, err := New(msgbot.Config{
 		WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/test",
 		HTTPClient: &http.Client{Transport: rt},
 	})
 	if err != nil {
 		t.Fatalf("new webhook: %v", err)
 	}
-	if bot.Platform() != news.PlatformFeishu || bot.Stats() == nil {
+	if bot.Platform() != msgbot.PlatformFeishu || bot.Stats() == nil {
 		t.Fatal("webhook metadata mismatch")
 	}
-	if err := bot.SendText(context.Background(), "hello", news.WithAtAll()); err != nil {
+	if err := bot.SendText(context.Background(), "hello", msgbot.WithAtAll()); err != nil {
 		t.Fatalf("send text: %v", err)
 	}
 	if err := bot.SendMarkdown(context.Background(), "title", "body"); err != nil {
@@ -243,7 +248,7 @@ func TestWebhookSendVariants(t *testing.T) {
 	if err := bot.SendRichText(context.Background(), BuildRichText("title", "body", nil, true)); err != nil {
 		t.Fatalf("send rich text: %v", err)
 	}
-	if err := bot.SendImage(context.Background(), &news.ImageMessage{ImageKey: "img_xxx"}); err != nil {
+	if err := bot.SendImage(context.Background(), &msgbot.ImageMessage{ImageKey: "img_xxx"}); err != nil {
 		t.Fatalf("send image: %v", err)
 	}
 	if len(rt.requests) != 4 {
@@ -252,11 +257,11 @@ func TestWebhookSendVariants(t *testing.T) {
 }
 
 func TestWebhookErrorsAndHelpers(t *testing.T) {
-	if _, err := New(news.Config{}); err == nil {
+	if _, err := New(msgbot.Config{}); err == nil {
 		t.Fatal("expected missing webhook url")
 	}
 	rt := &recordingRoundTripper{responses: []roundTripResponse{{status: http.StatusOK, body: `{"code":1,"msg":"bad"}`}}}
-	bot, err := New(news.Config{WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/test", HTTPClient: &http.Client{Transport: rt}})
+	bot, err := New(msgbot.Config{WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/test", HTTPClient: &http.Client{Transport: rt}})
 	if err != nil {
 		t.Fatalf("new webhook: %v", err)
 	}
@@ -272,11 +277,11 @@ func TestWebhookErrorsAndHelpers(t *testing.T) {
 	if err := bot.SendRichText(context.Background(), nil); err == nil {
 		t.Fatal("expected rich text validation error")
 	}
-	if err := bot.SendImage(context.Background(), &news.ImageMessage{}); err == nil {
+	if err := bot.SendImage(context.Background(), &msgbot.ImageMessage{}); err == nil {
 		t.Fatal("expected image validation error")
 	}
 
-	msg := BuildRichTextLines("title", []news.RichTextTag{{Tag: "text", Text: "line"}})
+	msg := BuildRichTextLines("title", []msgbot.RichTextTag{{Tag: "text", Text: "line"}})
 	if msg.Title != "title" || len(msg.Content) != 1 {
 		t.Fatalf("unexpected rich text lines: %+v", msg)
 	}
@@ -341,7 +346,7 @@ func TestAccessTokenDownloadImage(t *testing.T) {
 }
 
 func TestWebhookSendImageFromFile(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "news-feishu-image-*.png")
+	file, err := os.CreateTemp(t.TempDir(), "msgbot-feishu-image-*.png")
 	if err != nil {
 		t.Fatalf("create temp image: %v", err)
 	}
@@ -358,7 +363,7 @@ func TestWebhookSendImageFromFile(t *testing.T) {
 			{status: http.StatusOK, body: `{"code":0,"msg":"ok"}`},
 		},
 	}
-	bot, err := New(news.Config{
+	bot, err := New(msgbot.Config{
 		WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/test",
 		HTTPClient: &http.Client{Transport: rt},
 	})

@@ -49,12 +49,12 @@ func TestParseRetryAfter(t *testing.T) {
 		})
 	}
 
-	// HTTP-date form: a future time yields a positive duration.
+	// HTTP-date 形式：未来时间产生正的 duration。
 	future := time.Now().Add(2 * time.Minute).UTC().Format(http.TimeFormat)
 	if got := parseRetryAfter(future); got <= 0 {
 		t.Fatalf("future HTTP-date should yield positive duration, got %s", got)
 	}
-	// A past date yields no wait.
+	// 过去的日期不产生等待。
 	past := time.Now().Add(-2 * time.Minute).UTC().Format(http.TimeFormat)
 	if got := parseRetryAfter(past); got != 0 {
 		t.Fatalf("past HTTP-date should yield 0, got %s", got)

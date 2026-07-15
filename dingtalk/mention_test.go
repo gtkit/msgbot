@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	news "github.com/gtkit/msgbot"
+	"github.com/gtkit/msgbot"
 )
 
 func TestSendTextInjectsMentionMobiles(t *testing.T) {
 	bot, bodies := newDingTalkTestWebhook(t, nil)
 
-	if err := bot.SendText(context.Background(), "alert", news.WithAtUsers("13800000000")); err != nil {
+	if err := bot.SendText(context.Background(), "alert", msgbot.WithAtUsers("13800000000")); err != nil {
 		t.Fatalf("send text: %v", err)
 	}
 	body := (*bodies)[0]
@@ -27,7 +27,7 @@ func TestSendTextInjectsMentionMobiles(t *testing.T) {
 func TestSendMarkdownInjectsMentionMobiles(t *testing.T) {
 	bot, bodies := newDingTalkTestWebhook(t, nil)
 
-	if err := bot.SendMarkdown(context.Background(), "title", "content", news.WithAtUsers("13800000000")); err != nil {
+	if err := bot.SendMarkdown(context.Background(), "title", "content", msgbot.WithAtUsers("13800000000")); err != nil {
 		t.Fatalf("send markdown: %v", err)
 	}
 	if !strings.Contains((*bodies)[0], "@13800000000") {
@@ -38,7 +38,7 @@ func TestSendMarkdownInjectsMentionMobiles(t *testing.T) {
 func TestSendMarkdownAtAll(t *testing.T) {
 	bot, bodies := newDingTalkTestWebhook(t, nil)
 
-	if err := bot.SendMarkdown(context.Background(), "title", "content", news.WithAtAll()); err != nil {
+	if err := bot.SendMarkdown(context.Background(), "title", "content", msgbot.WithAtAll()); err != nil {
 		t.Fatalf("send markdown: %v", err)
 	}
 	if !strings.Contains((*bodies)[0], `"isAtAll":true`) {
@@ -53,8 +53,8 @@ func TestSendMarkdownRequiresTitle(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected title validation error")
 	}
-	var e *news.Error
-	if !errors.As(err, &e) || e.Kind != news.KindValidation {
+	var e *msgbot.Error
+	if !errors.As(err, &e) || e.Kind != msgbot.KindValidation {
 		t.Fatalf("want KindValidation, got %v", err)
 	}
 	if len(*bodies) != 0 {
@@ -65,7 +65,7 @@ func TestSendMarkdownRequiresTitle(t *testing.T) {
 func TestSendRichTextRequiresTitle(t *testing.T) {
 	bot, bodies := newDingTalkTestWebhook(t, nil)
 
-	err := bot.SendRichText(context.Background(), &news.RichTextMessage{})
+	err := bot.SendRichText(context.Background(), &msgbot.RichTextMessage{})
 	if err == nil {
 		t.Fatal("expected rich text title validation error")
 	}

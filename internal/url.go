@@ -6,8 +6,8 @@ import (
 	"net/url"
 )
 
-// URLOriginForLog returns only the non-sensitive origin of a URL.
-// Webhook paths and query strings commonly contain access tokens and signatures.
+// URLOriginForLog 仅返回 URL 中非敏感的 origin 部分。
+// webhook 的 path 与 query 字符串通常包含 access token 和签名。
 func URLOriginForLog(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
@@ -16,8 +16,8 @@ func URLOriginForLog(rawURL string) string {
 	return parsed.Scheme + "://" + parsed.Host
 }
 
-// ValidateHTTPURL validates an absolute HTTP(S) endpoint without echoing the
-// potentially sensitive raw URL in the returned error.
+// ValidateHTTPURL 校验一个绝对的 HTTP(S) 端点，且不在返回的错误中
+// 回显可能敏感的原始 URL。
 func ValidateHTTPURL(rawURL string) error {
 	parsed, err := url.ParseRequestURI(rawURL)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
@@ -26,8 +26,8 @@ func ValidateHTTPURL(rawURL string) error {
 	return nil
 }
 
-// SanitizeRequestError removes request URLs from net/url transport errors while
-// preserving the underlying cause for errors.Is and errors.As checks.
+// SanitizeRequestError 从 net/url 传输错误中移除请求 URL，同时保留底层
+// 原因以支持 errors.Is 和 errors.As 检查。
 func SanitizeRequestError(err error) error {
 	if err == nil {
 		return nil

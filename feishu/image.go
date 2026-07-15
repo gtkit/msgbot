@@ -12,13 +12,17 @@ import (
 
 	json "github.com/gtkit/json/v2"
 
-	news "github.com/gtkit/msgbot"
+	"github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
 )
 
 const (
 	// FeishuUploadImageAPI 飞书上传图片 API 地址.
 	FeishuUploadImageAPI = "https://open.feishu.cn/open-apis/im/v1/images"
+
+	// feishuImageMaxBytes 飞书图片消息大小上限（10MB）。超过则本地拒绝，
+	// 避免把超大输入整体读入内存。
+	feishuImageMaxBytes = 10 << 20
 )
 
 // UploadImageResp 飞书上传图片 API 的完整响应结构体.
@@ -81,8 +85,13 @@ func UploadImageFromReader(ctx context.Context, tenantAccessToken, filename stri
 		return nil, fmt.Errorf("feishu: create form file: %w", err)
 	}
 
-	if _, err = io.Copy(part, reader); err != nil {
+	// 通过 LimitReader 读取，多读 1 字节用于判断是否超限，避免超大输入被完整缓冲。
+	written, err := io.Copy(part, io.LimitReader(reader, feishuImageMaxBytes+1))
+	if err != nil {
 		return nil, fmt.Errorf("feishu: copy image data: %w", err)
+	}
+	if written > feishuImageMaxBytes {
+		return nil, msgbot.ValidationError(msgbot.PlatformFeishu, "UploadImage", "image exceeds 10MB limit", nil)
 	}
 
 	if err := writer.WriteField("image_type", "message"); err != nil {
@@ -104,25 +113,25 @@ func UploadImageFromReader(ctx context.Context, tenantAccessToken, filename stri
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("feishu: upload request: %w", internal.SanitizeRequestError(err))
+		return nil, msgbot.WrapError(msgbot.PlatformFeishu, "UploadImage", internal.SanitizeRequestError(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	data, err := internal.ReadResponse(resp, 1<<20)
 	if err != nil {
-		return nil, fmt.Errorf("feishu: upload response: %w", err)
+		return nil, msgbot.WrapError(msgbot.PlatformFeishu, "UploadImage", err)
 	}
 
 	var uploadResp UploadImageResp
 	if err := json.Unmarshal(data, &uploadResp); err != nil {
-		return nil, fmt.Errorf("feishu: decode upload response: %w", err)
+		return nil, msgbot.DecodeError(msgbot.PlatformFeishu, "UploadImage", "decode upload response", err)
 	}
 
 	if uploadResp.Code != 0 {
-		return nil, fmt.Errorf("feishu: upload image: code=%d, msg=%s", uploadResp.Code, uploadResp.Msg)
+		return nil, msgbot.PlatformError(msgbot.PlatformFeishu, "UploadImage", uploadResp.Code, uploadResp.Msg)
 	}
 	if uploadResp.ImageKey() == "" {
-		return nil, fmt.Errorf("feishu: upload image: image_key is empty")
+		return nil, msgbot.DecodeError(msgbot.PlatformFeishu, "UploadImage", "image_key is empty", nil)
 	}
 
 	return &uploadResp, nil
@@ -136,7 +145,7 @@ func (w *Webhook) SendImageFromFile(ctx context.Context, tenantAccessToken, path
 		return err
 	}
 
-	return w.SendImage(ctx, &news.ImageMessage{
+	return w.SendImage(ctx, &msgbot.ImageMessage{
 		ImageKey: uploadResp.ImageKey(),
 	})
 }

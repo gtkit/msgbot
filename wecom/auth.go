@@ -2,12 +2,12 @@ package wecom
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/url"
 
 	json "github.com/gtkit/json/v2"
 
+	"github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
 )
 
@@ -36,12 +36,12 @@ type accessTokenResp struct {
 // 调用方应缓存返回值，避免频繁调用（否则会被企业微信频率限制）.
 func GetAccessToken(ctx context.Context, corpID, corpSecret string, client ...*http.Client) (*AccessToken, error) {
 	if corpID == "" || corpSecret == "" {
-		return nil, fmt.Errorf("wecom: corpid and corpsecret are required")
+		return nil, msgbot.ValidationError(msgbot.PlatformWeCom, "GetAccessToken", "corpid and corpsecret are required", nil)
 	}
 
 	endpoint, err := url.Parse(AccessTokenAPI)
 	if err != nil {
-		return nil, fmt.Errorf("wecom: parse token endpoint: %w", err)
+		return nil, msgbot.ValidationError(msgbot.PlatformWeCom, "GetAccessToken", "parse token endpoint", err)
 	}
 	query := endpoint.Query()
 	query.Set("corpid", corpID)
@@ -52,30 +52,30 @@ func GetAccessToken(ctx context.Context, corpID, corpSecret string, client ...*h
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("wecom: create token request: %w", err)
+		return nil, msgbot.ValidationError(msgbot.PlatformWeCom, "GetAccessToken", "create token request", err)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("wecom: send token request: %w", internal.SanitizeRequestError(err))
+		return nil, msgbot.WrapError(msgbot.PlatformWeCom, "GetAccessToken", internal.SanitizeRequestError(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	data, err := internal.ReadResponse(resp, 1<<20)
 	if err != nil {
-		return nil, fmt.Errorf("wecom: token response: %w", err)
+		return nil, msgbot.WrapError(msgbot.PlatformWeCom, "GetAccessToken", err)
 	}
 
 	var result accessTokenResp
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("wecom: decode token response: %w", err)
+		return nil, msgbot.DecodeError(msgbot.PlatformWeCom, "GetAccessToken", "decode token response", err)
 	}
 
 	if result.ErrCode != 0 {
-		return nil, fmt.Errorf("wecom: get access token: errcode=%d, errmsg=%s", result.ErrCode, result.ErrMsg)
+		return nil, msgbot.PlatformError(msgbot.PlatformWeCom, "GetAccessToken", result.ErrCode, result.ErrMsg)
 	}
 	if result.AccessToken == "" {
-		return nil, fmt.Errorf("wecom: get access token: access_token is empty")
+		return nil, msgbot.DecodeError(msgbot.PlatformWeCom, "GetAccessToken", "access_token is empty", nil)
 	}
 
 	return &AccessToken{

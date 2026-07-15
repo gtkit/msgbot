@@ -8,28 +8,32 @@ import (
 
 	json "github.com/gtkit/json/v2"
 
+	"github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
 )
 
 const (
-	// MessageAPI is the Feishu application message API endpoint for open_id recipients.
+	// MessageAPI 是面向 open_id 收件人的飞书应用消息 API 地址。
 	MessageAPI = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id"
 )
 
-// TokenSource resolves the current AccessToken for an App operation. It pairs
-// naturally with GetAccessTokenCached, which refreshes an expired token.
+// TokenSource 为一次 App 操作解析当前的 AccessToken。它天然地
+// 与刷新过期 token 的 GetAccessTokenCached 配合使用。
+//
+// 实现必须可被多个 goroutine 安全并发调用——App 的并发安全性以此为前提；
+// GetAccessTokenCached 搭配 MemoryTokenCache 已满足该要求。
 type TokenSource func(context.Context) (*AccessToken, error)
 
-// App sends Feishu application messages to open_id recipients.
-// It is safe for concurrent use by multiple goroutines.
+// App 向 open_id 收件人发送飞书应用消息。
+// 可被多个 goroutine 安全并发使用。
 type App struct {
 	source TokenSource
-	client *http.Client // caller-supplied; nil means use the tiered default clients.
+	client *http.Client // 由调用方提供；nil 表示使用分级的默认客户端。
 }
 
-// NewApp creates a Feishu application-message client from a static AccessToken.
-// The token is used as-is and does not refresh; when the token may expire, use
-// NewAppWithTokenSource so each operation can obtain a fresh token.
+// NewApp 从一个静态 AccessToken 创建飞书应用消息客户端。
+// token 按原样使用且不会刷新；当 token 可能过期时，请使用
+// NewAppWithTokenSource，以便每次操作都能获取新的 token。
 func NewApp(token *AccessToken, client ...*http.Client) (*App, error) {
 	if token == nil {
 		return nil, fmt.Errorf("feishu: access token is nil")
@@ -43,10 +47,9 @@ func NewApp(token *AccessToken, client ...*http.Client) (*App, error) {
 	}, client...)
 }
 
-// NewAppWithTokenSource creates a Feishu application-message client that resolves
-// its token from source on each operation, so an expired token can be refreshed
-// without rebuilding the App. Pass feishu.GetAccessTokenCached wrapped in a
-// closure to combine refresh with caching.
+// NewAppWithTokenSource 创建一个飞书应用消息客户端，它在每次操作时从 source
+// 解析 token，因此无需重建 App 即可刷新过期的 token。可将 feishu.GetAccessTokenCached
+// 包装在闭包中传入，从而将刷新与缓存结合起来。
 func NewAppWithTokenSource(source TokenSource, client ...*http.Client) (*App, error) {
 	if source == nil {
 		return nil, fmt.Errorf("feishu: token source is nil")
@@ -58,8 +61,8 @@ func NewAppWithTokenSource(source TokenSource, client ...*http.Client) (*App, er
 	return &App{source: source, client: c}, nil
 }
 
-// messageClient returns the client for small message requests: the caller's
-// client if provided, otherwise the shared 10s-timeout client.
+// messageClient 返回用于小型消息请求的客户端：若调用方提供了客户端则使用它，
+// 否则使用共享的 10s 超时客户端。
 func (a *App) messageClient() *http.Client {
 	if a.client != nil {
 		return a.client
@@ -67,8 +70,8 @@ func (a *App) messageClient() *http.Client {
 	return internal.DefaultClient()
 }
 
-// uploadClient returns the client for image upload: the caller's client if
-// provided, otherwise the shared 30s-timeout client.
+// uploadClient 返回用于图片上传的客户端：若调用方提供了客户端则使用它，
+// 否则使用共享的 30s 超时客户端。
 func (a *App) uploadClient() *http.Client {
 	if a.client != nil {
 		return a.client
@@ -76,7 +79,7 @@ func (a *App) uploadClient() *http.Client {
 	return internal.DefaultUploadClient()
 }
 
-// token resolves and validates the current token for one operation.
+// token 为一次操作解析并校验当前的 token。
 func (a *App) token(ctx context.Context) (*AccessToken, error) {
 	t, err := a.source(ctx)
 	if err != nil {
@@ -88,7 +91,7 @@ func (a *App) token(ctx context.Context) (*AccessToken, error) {
 	return t, nil
 }
 
-// SendTextMessage sends a text application message to a Feishu open_id.
+// SendTextMessage 向飞书 open_id 发送一条文本应用消息。
 func (a *App) SendTextMessage(ctx context.Context, openID, text string) error {
 	if openID == "" {
 		return fmt.Errorf("feishu: open_id is required")
@@ -114,9 +117,9 @@ func (a *App) SendTextMessage(ctx context.Context, openID, text string) error {
 	})
 }
 
-// SendImageMessage uploads a local image and sends it to a Feishu open_id.
-// The token is resolved once and reused for both the upload and the send, so
-// the two requests never split across different tokens.
+// SendImageMessage 上传本地图片并将其发送到飞书 open_id。
+// token 只解析一次，并在上传与发送中复用，因此这两个请求
+// 绝不会分别使用不同的 token。
 func (a *App) SendImageMessage(ctx context.Context, openID, path string) error {
 	if openID == "" {
 		return fmt.Errorf("feishu: open_id is required")
@@ -147,7 +150,7 @@ func (a *App) SendImageMessage(ctx context.Context, openID, path string) error {
 	})
 }
 
-// send posts a message payload authenticated with the given token.
+// send 使用给定的 token 进行鉴权，POST 一个消息 payload。
 func (a *App) send(ctx context.Context, token *AccessToken, payload map[string]any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -163,21 +166,21 @@ func (a *App) send(ctx context.Context, token *AccessToken, payload map[string]a
 
 	httpResp, err := a.messageClient().Do(req)
 	if err != nil {
-		return fmt.Errorf("feishu: send message: %w", internal.SanitizeRequestError(err))
+		return msgbot.WrapError(msgbot.PlatformFeishu, "App.Send", internal.SanitizeRequestError(err))
 	}
 	defer func() { _ = httpResp.Body.Close() }()
 
 	data, err := internal.ReadResponse(httpResp, 1<<20)
 	if err != nil {
-		return fmt.Errorf("feishu: send message: %w", err)
+		return msgbot.WrapError(msgbot.PlatformFeishu, "App.Send", err)
 	}
 
 	var respInfo appMessageResp
 	if err := json.Unmarshal(data, &respInfo); err != nil {
-		return fmt.Errorf("feishu: decode message response: %w", err)
+		return msgbot.DecodeError(msgbot.PlatformFeishu, "App.Send", "decode message response", err)
 	}
 	if respInfo.Code != 0 {
-		return fmt.Errorf("feishu: send message: code=%d, msg=%s", respInfo.Code, respInfo.Msg)
+		return msgbot.PlatformError(msgbot.PlatformFeishu, "App.Send", respInfo.Code, respInfo.Msg)
 	}
 
 	return nil

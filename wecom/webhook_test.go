@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	news "github.com/gtkit/msgbot"
+	"github.com/gtkit/msgbot"
 )
 
 func TestWebhookSendText(t *testing.T) {
 	var body string
-	bot, err := New(news.Config{
+	bot, err := New(msgbot.Config{
 		WebhookURL: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test",
 		HTTPClient: &http.Client{Transport: wecomRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			data, _ := io.ReadAll(req.Body)
@@ -25,7 +25,7 @@ func TestWebhookSendText(t *testing.T) {
 		t.Fatalf("new: %v", err)
 	}
 
-	if err := bot.SendText(context.Background(), "hello", news.WithAtAll()); err != nil {
+	if err := bot.SendText(context.Background(), "hello", msgbot.WithAtAll()); err != nil {
 		t.Fatalf("send text: %v", err)
 	}
 	if !strings.Contains(body, `"msgtype":"text"`) || !strings.Contains(body, `"@all"`) {
@@ -51,13 +51,13 @@ func TestWebhookSendVariants(t *testing.T) {
 		`{"errcode":0,"errmsg":"ok"}`,
 	})
 
-	if bot.Platform() != news.PlatformWeCom {
+	if bot.Platform() != msgbot.PlatformWeCom {
 		t.Fatal("platform mismatch")
 	}
 	if err := bot.SendMarkdown(context.Background(), "title", "body"); err != nil {
 		t.Fatalf("send markdown: %v", err)
 	}
-	if err := bot.SendRichText(context.Background(), &news.RichTextMessage{Content: [][]news.RichTextTag{{{Tag: "text", Text: "hello"}}}}); err != nil {
+	if err := bot.SendRichText(context.Background(), &msgbot.RichTextMessage{Content: [][]msgbot.RichTextTag{{{Tag: "text", Text: "hello"}}}}); err != nil {
 		t.Fatalf("send rich text: %v", err)
 	}
 	if err := bot.SendImage(context.Background(), BuildImageMessage([]byte("image"))); err != nil {
@@ -76,7 +76,7 @@ func TestWebhookSendVariants(t *testing.T) {
 }
 
 func TestWebhookErrorsAndToken(t *testing.T) {
-	if _, err := New(news.Config{}); err == nil {
+	if _, err := New(msgbot.Config{}); err == nil {
 		t.Fatal("expected missing url error")
 	}
 	bot, _ := newWeComTestWebhook(t, []string{`{"errcode":1,"errmsg":"bad"}`})
@@ -92,7 +92,7 @@ func TestWebhookErrorsAndToken(t *testing.T) {
 	if err := bot.SendRichText(context.Background(), nil); err == nil {
 		t.Fatal("expected rich text validation error")
 	}
-	if err := bot.SendImage(context.Background(), &news.ImageMessage{}); err == nil {
+	if err := bot.SendImage(context.Background(), &msgbot.ImageMessage{}); err == nil {
 		t.Fatal("expected image validation error")
 	}
 
@@ -143,7 +143,7 @@ func newWeComTestWebhook(t *testing.T, responses []string) (*Webhook, *[]string)
 	t.Helper()
 
 	var bodies []string
-	bot, err := New(news.Config{
+	bot, err := New(msgbot.Config{
 		WebhookURL: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test",
 		HTTPClient: &http.Client{Transport: wecomRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			data, _ := io.ReadAll(req.Body)

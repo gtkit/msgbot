@@ -46,7 +46,7 @@ func TestRetryStopsAtMax(t *testing.T) {
 		calls++
 		return &Error{Kind: KindHTTP, HTTPStatus: 503, Retryable: true}
 	})
-	if calls != 3 { // first attempt + 2 retries.
+	if calls != 3 { // 首次尝试 + 2 次重试。
 		t.Fatalf("want 3 attempts, got %d", calls)
 	}
 	if err == nil {
@@ -73,16 +73,20 @@ func TestRetryStopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var calls int
+	lastErr := &Error{Kind: KindHTTP, HTTPStatus: 503, Retryable: true}
 	p := RetryPolicy{MaxRetries: 5, InitialDelay: time.Hour, MaxDelay: time.Hour}
 	err := p.do(ctx, func(context.Context) error {
 		calls++
-		return &Error{Kind: KindHTTP, HTTPStatus: 503, Retryable: true}
+		return lastErr
 	})
 	if calls != 1 {
 		t.Fatalf("cancelled context must stop before a long backoff, got %d calls", calls)
 	}
-	if err == nil {
-		t.Fatal("want error")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want errors.Is(context.Canceled), got %v", err)
+	}
+	if !errors.Is(err, lastErr) {
+		t.Fatal("last attempt error must be preserved in the chain")
 	}
 }
 
@@ -92,10 +96,10 @@ func TestBackoffHonorsRetryAfter(t *testing.T) {
 	if got != 5*time.Second {
 		t.Fatalf("want RetryAfter honored, got %s", got)
 	}
-	// Capped by MaxDelay.
-	capped := backoff(time.Millisecond, 2*time.Second, 0, err, false)
-	if capped != 2*time.Second {
-		t.Fatalf("want RetryAfter capped at MaxDelay, got %s", capped)
+	// Retry-After 完整生效，不被 MaxDelay 截断（总时长由 ctx 兜底）。
+	full := backoff(time.Millisecond, 2*time.Second, 0, err, false)
+	if full != 5*time.Second {
+		t.Fatalf("want RetryAfter honored in full (not capped by MaxDelay), got %s", full)
 	}
 }
 

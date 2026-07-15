@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	news "github.com/gtkit/msgbot"
+	"github.com/gtkit/msgbot"
 )
 
 func newMentionWebhook(t *testing.T, rt *recordingRoundTripper) *Webhook {
 	t.Helper()
-	bot, err := New(news.Config{
+	bot, err := New(msgbot.Config{
 		WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/test",
 		HTTPClient: &http.Client{Transport: rt},
 	})
@@ -40,7 +40,7 @@ func TestSendTextEscapesMentionedUser(t *testing.T) {
 	rt := &recordingRoundTripper{responses: []roundTripResponse{{status: http.StatusOK, body: `{"code":0}`}}}
 	bot := newMentionWebhook(t, rt)
 
-	if err := bot.SendText(context.Background(), "hi", news.WithAtUsers(`ou_"evil`)); err != nil {
+	if err := bot.SendText(context.Background(), "hi", msgbot.WithAtUsers(`ou_"evil`)); err != nil {
 		t.Fatalf("send text: %v", err)
 	}
 	text := textContent(t, rt.requests[0].body)
@@ -56,7 +56,7 @@ func TestSendTextMergesAtAllAndUsers(t *testing.T) {
 	rt := &recordingRoundTripper{responses: []roundTripResponse{{status: http.StatusOK, body: `{"code":0}`}}}
 	bot := newMentionWebhook(t, rt)
 
-	if err := bot.SendText(context.Background(), "hi", news.WithAtAll(), news.WithAtUsers("ou_1")); err != nil {
+	if err := bot.SendText(context.Background(), "hi", msgbot.WithAtAll(), msgbot.WithAtUsers("ou_1")); err != nil {
 		t.Fatalf("send text: %v", err)
 	}
 	text := textContent(t, rt.requests[0].body)
@@ -72,7 +72,7 @@ func TestSendMarkdownUsesCardMentionSyntax(t *testing.T) {
 	rt := &recordingRoundTripper{responses: []roundTripResponse{{status: http.StatusOK, body: `{"code":0}`}}}
 	bot := newMentionWebhook(t, rt)
 
-	if err := bot.SendMarkdown(context.Background(), "title", "body", news.WithAtAll(), news.WithAtUsers("ou_1")); err != nil {
+	if err := bot.SendMarkdown(context.Background(), "title", "body", msgbot.WithAtAll(), msgbot.WithAtUsers("ou_1")); err != nil {
 		t.Fatalf("send markdown: %v", err)
 	}
 
@@ -92,7 +92,7 @@ func TestSendMarkdownUsesCardMentionSyntax(t *testing.T) {
 	if !strings.Contains(content, "<at id=ou_1></at>") {
 		t.Fatalf("missing card at-user: %s", content)
 	}
-	// Card mentions must not use the text-message user_id syntax.
+	// 卡片 @ 不能使用文本消息的 user_id 语法。
 	if strings.Contains(content, "user_id=") {
 		t.Fatalf("card must not use text-message mention syntax: %s", content)
 	}

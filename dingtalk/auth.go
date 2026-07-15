@@ -2,12 +2,12 @@ package dingtalk
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/url"
 
 	"github.com/gtkit/json/v2"
 
+	"github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
 )
 
@@ -36,12 +36,12 @@ type accessTokenResp struct {
 // 调用方应缓存返回值，有效期内重复获取会返回相同结果并自动续期.
 func GetAccessToken(ctx context.Context, appKey, appSecret string, client ...*http.Client) (*AccessToken, error) {
 	if appKey == "" || appSecret == "" {
-		return nil, fmt.Errorf("dingtalk: appkey and appsecret are required")
+		return nil, msgbot.ValidationError(msgbot.PlatformDingTalk, "GetAccessToken", "appkey and appsecret are required", nil)
 	}
 
 	endpoint, err := url.Parse(AccessTokenAPI)
 	if err != nil {
-		return nil, fmt.Errorf("dingtalk: parse token endpoint: %w", err)
+		return nil, msgbot.ValidationError(msgbot.PlatformDingTalk, "GetAccessToken", "parse token endpoint", err)
 	}
 	query := endpoint.Query()
 	query.Set("appkey", appKey)
@@ -52,30 +52,30 @@ func GetAccessToken(ctx context.Context, appKey, appSecret string, client ...*ht
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("dingtalk: create token request: %w", err)
+		return nil, msgbot.ValidationError(msgbot.PlatformDingTalk, "GetAccessToken", "create token request", err)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("dingtalk: send token request: %w", internal.SanitizeRequestError(err))
+		return nil, msgbot.WrapError(msgbot.PlatformDingTalk, "GetAccessToken", internal.SanitizeRequestError(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	data, err := internal.ReadResponse(resp, 1<<20)
 	if err != nil {
-		return nil, fmt.Errorf("dingtalk: token response: %w", err)
+		return nil, msgbot.WrapError(msgbot.PlatformDingTalk, "GetAccessToken", err)
 	}
 
 	var result accessTokenResp
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("dingtalk: decode token response: %w", err)
+		return nil, msgbot.DecodeError(msgbot.PlatformDingTalk, "GetAccessToken", "decode token response", err)
 	}
 
 	if result.ErrCode != 0 {
-		return nil, fmt.Errorf("dingtalk: get access token: errcode=%d, errmsg=%s", result.ErrCode, result.ErrMsg)
+		return nil, msgbot.PlatformError(msgbot.PlatformDingTalk, "GetAccessToken", result.ErrCode, result.ErrMsg)
 	}
 	if result.AccessToken == "" {
-		return nil, fmt.Errorf("dingtalk: get access token: access_token is empty")
+		return nil, msgbot.DecodeError(msgbot.PlatformDingTalk, "GetAccessToken", "access_token is empty", nil)
 	}
 
 	return &AccessToken{

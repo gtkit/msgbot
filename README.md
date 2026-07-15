@@ -339,6 +339,8 @@ if errors.As(err, &e) {
 // 底层原因保留：errors.Is(err, context.Canceled) 等仍可穿透判断。
 ```
 
+结构化错误覆盖：三平台 webhook 发送、access token 获取、飞书图片上传/下载与飞书 App 消息发送均返回 `*msgbot.Error`；少数纯本地错误（如打开文件失败）仍是普通 error。
+
 重试默认关闭。开启后只重试瞬时错误（网络抖动、HTTP 408/425/429/5xx、平台限流码如钉钉 130101、企微 45009/45033、飞书 11232），采用指数退避 + jitter，尊重 `Retry-After` 与 `ctx` 截止时间：
 
 ```go

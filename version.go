@@ -1,4 +1,4 @@
 package msgbot
 
-// Version is the current version of the msgbot module.
+// Version 是 msgbot 模块的当前版本号。
 const Version = "v1.0.0"

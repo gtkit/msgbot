@@ -1,30 +1,29 @@
-// Package wecom implements the news.Provider interface for
-// WeCom (WeChat Work) group robot webhooks. It supports text,
-// markdown, and image message types. Rich text degrades to markdown.
+// Package wecom 实现了企业微信（WeChat Work）群机器人 webhook 的 msgbot.Provider 接口。
+// 支持 text、markdown 和 image 消息类型。富文本会降级为 markdown。
 //
-// All methods are safe for concurrent use.
+// 所有方法均可安全并发使用。
 package wecom
 
 import (
 	"context"
 	"fmt"
 
-	news "github.com/gtkit/msgbot"
+	"github.com/gtkit/msgbot"
 	"github.com/gtkit/msgbot/internal"
 )
 
-// compile-time interface check.
-var _ news.Provider = (*Webhook)(nil)
+// 编译期接口检查。
+var _ msgbot.Provider = (*Webhook)(nil)
 
-// Webhook is a WeCom webhook robot provider.
-// All fields are immutable after construction; safe for concurrent use.
+// Webhook 是企业微信 webhook 机器人 Provider。
+// 所有字段在构造后不可变，可安全并发使用。
 type Webhook struct {
-	cfg   news.Config
-	stats news.Stats
+	cfg   msgbot.Config
+	stats msgbot.Stats
 }
 
-// New creates a new WeCom webhook provider.
-func New(cfg news.Config) (*Webhook, error) {
+// New 创建一个新的企业微信 webhook Provider。
+func New(cfg msgbot.Config) (*Webhook, error) {
 	if cfg.WebhookURL == "" {
 		return nil, fmt.Errorf("wecom: webhook URL is required")
 	}
@@ -35,20 +34,20 @@ func New(cfg news.Config) (*Webhook, error) {
 	return &Webhook{cfg: cfg}, nil
 }
 
-// Platform returns the platform identifier.
-func (w *Webhook) Platform() news.Platform { return news.PlatformWeCom }
+// Platform 返回平台标识。
+func (w *Webhook) Platform() msgbot.Platform { return msgbot.PlatformWeCom }
 
-// Stats returns the provider's send statistics.
-func (w *Webhook) Stats() *news.Stats { return &w.stats }
+// Stats 返回 Provider 的发送统计信息。
+func (w *Webhook) Stats() *msgbot.Stats { return &w.stats }
 
-// SendText sends a plain text message to the WeCom group.
-// AtAll and AtUserIDs are merged into mentioned_list, so both @all and specific
-// users can be mentioned in the same message.
-func (w *Webhook) SendText(ctx context.Context, text string, opts ...news.SendOption) error {
+// SendText 发送纯文本消息到企业微信群。
+// AtAll 与 AtUserIDs 会合并进 mentioned_list，因此可以在同一条消息中
+// 同时 @all 和 @指定用户。
+func (w *Webhook) SendText(ctx context.Context, text string, opts ...msgbot.SendOption) error {
 	if text == "" {
-		return news.ValidationError(news.PlatformWeCom, "SendText", "text content is empty", nil)
+		return msgbot.ValidationError(msgbot.PlatformWeCom, "SendText", "text content is empty", nil)
 	}
-	o := news.ApplySendOptions(opts)
+	o := msgbot.ApplySendOptions(opts)
 
 	textNode := map[string]any{"content": text}
 	var mentioned []string
@@ -66,17 +65,17 @@ func (w *Webhook) SendText(ctx context.Context, text string, opts ...news.SendOp
 	})
 }
 
-// SendMarkdown sends a markdown message to the WeCom group.
-// WeCom supports: headers, bold, links, quotes, and colored text via <font>.
+// SendMarkdown 发送 markdown 消息到企业微信群。
+// 企业微信支持：标题、加粗、链接、引用，以及通过 <font> 实现的彩色文本。
 //
-// WeCom markdown cannot mention specific users, so any @ options are ignored
-// (a debug log records this). The message is still sent so a Multi broadcast
-// stays best-effort. Use SendText when a mention must notify a user.
-func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts ...news.SendOption) error {
+// 企业微信 markdown 无法 @ 指定用户，因此任何 @ 选项都会被忽略
+// （并记录一条 debug 日志）。消息仍会被发送，以保证 Multi 广播尽力而为。
+// 当 @ 必须通知到用户时，请改用 SendText。
+func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts ...msgbot.SendOption) error {
 	if content == "" {
-		return news.ValidationError(news.PlatformWeCom, "SendMarkdown", "markdown content is empty", nil)
+		return msgbot.ValidationError(msgbot.PlatformWeCom, "SendMarkdown", "markdown content is empty", nil)
 	}
-	o := news.ApplySendOptions(opts)
+	o := msgbot.ApplySendOptions(opts)
 	if o.AtAll || len(o.AtUserIDs) > 0 {
 		w.cfg.LogDebug(ctx, "wecom: markdown cannot mention users; @ options ignored", "op", "SendMarkdown")
 	}
@@ -92,21 +91,21 @@ func (w *Webhook) SendMarkdown(ctx context.Context, title, content string, opts 
 	})
 }
 
-// SendRichText converts a RichTextMessage to markdown and sends it.
-// WeCom does not natively support Feishu-style rich text.
-func (w *Webhook) SendRichText(ctx context.Context, msg *news.RichTextMessage) error {
+// SendRichText 将 RichTextMessage 转换为 markdown 后发送。
+// 企业微信原生不支持飞书风格的富文本。
+func (w *Webhook) SendRichText(ctx context.Context, msg *msgbot.RichTextMessage) error {
 	if msg == nil {
-		return news.ValidationError(news.PlatformWeCom, "SendRichText", "rich text message is nil", nil)
+		return msgbot.ValidationError(msgbot.PlatformWeCom, "SendRichText", "rich text message is nil", nil)
 	}
-	md := news.RichTextToMarkdown(msg)
+	md := msgbot.RichTextToMarkdown(msg)
 	return w.SendMarkdown(ctx, "", md)
 }
 
-// SendImage sends an image message to the WeCom group.
-// Both Base64 and MD5 fields must be set in the ImageMessage.
-func (w *Webhook) SendImage(ctx context.Context, img *news.ImageMessage) error {
+// SendImage 发送图片消息到企业微信群。
+// ImageMessage 中的 Base64 和 MD5 字段都必须设置。
+func (w *Webhook) SendImage(ctx context.Context, img *msgbot.ImageMessage) error {
 	if img == nil || img.Base64 == "" || img.MD5 == "" {
-		return news.ValidationError(news.PlatformWeCom, "SendImage", "both base64 and md5 are required for image", nil)
+		return msgbot.ValidationError(msgbot.PlatformWeCom, "SendImage", "both base64 and md5 are required for image", nil)
 	}
 
 	return w.send(ctx, "SendImage", map[string]any{
@@ -118,10 +117,10 @@ func (w *Webhook) SendImage(ctx context.Context, img *news.ImageMessage) error {
 	})
 }
 
-// send dispatches the payload through the shared send path. WeCom webhook
-// requires no request signing.
+// send 通过共享发送路径分发 payload。企业微信 webhook
+// 不需要请求签名。
 func (w *Webhook) send(ctx context.Context, op string, payload map[string]any) error {
-	return w.cfg.Send(ctx, &w.stats, news.PlatformWeCom, op, func() (string, any, error) {
+	return w.cfg.Send(ctx, &w.stats, msgbot.PlatformWeCom, op, func() (string, any, error) {
 		return w.cfg.WebhookURL, payload, nil
 	})
 }

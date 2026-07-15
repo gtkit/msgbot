@@ -33,7 +33,7 @@ func TestDingTalkSignedURLQueryHandling(t *testing.T) {
 	tests := []struct {
 		name       string
 		base       string
-		wantAccess bool // whether an existing access_token must survive
+		wantAccess bool // 已有的 access_token 是否必须保留
 	}{
 		{name: "with existing query", base: "https://oapi.dingtalk.com/robot/send?access_token=abc", wantAccess: true},
 		{name: "without query", base: "https://oapi.dingtalk.com/robot/send", wantAccess: false},
@@ -56,7 +56,7 @@ func TestDingTalkSignedURLQueryHandling(t *testing.T) {
 			if tt.wantAccess && q.Get("access_token") != "abc" {
 				t.Fatalf("existing access_token lost: %s", got)
 			}
-			// The signing params must be in the query string, never in the path.
+			// 签名参数必须放在 query string 中，绝不能出现在 path 里。
 			if strings.Contains(parsed.Path, "timestamp") || strings.Contains(parsed.Path, "sign") {
 				t.Fatalf("signing params leaked into path: %s", parsed.Path)
 			}

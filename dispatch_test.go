@@ -10,15 +10,15 @@ import (
 	"time"
 )
 
-// scriptedStep is one programmed transport result.
+// scriptedStep 表示一个预设的 transport 返回结果。
 type scriptedStep struct {
 	err    error
 	status int
 	body   string
 }
 
-// scriptedTransport returns a programmed sequence of results, repeating the
-// last step once exhausted. Not safe for concurrent use; tests are sequential.
+// scriptedTransport 返回一段预设的结果序列，序列耗尽后重复
+// 最后一步。并发使用不安全；测试为串行执行。
 type scriptedTransport struct {
 	calls int
 	steps []scriptedStep
@@ -140,6 +140,29 @@ func TestSendValidationDoesNotSend(t *testing.T) {
 	var e *Error
 	if !errors.As(err, &e) || e.Kind != KindValidation {
 		t.Fatalf("want KindValidation, got %+v", err)
+	}
+}
+
+func TestSendNilStatsNoPanic(t *testing.T) {
+	tr := &scriptedTransport{steps: []scriptedStep{{status: 200, body: `{"errcode":0}`}}}
+	cfg := newSendConfig(tr, RetryPolicy{})
+
+	// A nil *Stats must not panic.
+	if err := cfg.Send(context.Background(), nil, PlatformWeCom, "SendText", okBuild); err != nil {
+		t.Fatalf("send with nil stats: %v", err)
+	}
+}
+
+func TestGetHTTPClientFallbackHasTimeout(t *testing.T) {
+	// A config that was never frozen must not fall back to the timeout-less
+	// http.DefaultClient.
+	cfg := Config{}
+	c := cfg.GetHTTPClient()
+	if c == nil {
+		t.Fatal("client is nil")
+	}
+	if c == http.DefaultClient || c.Timeout == 0 {
+		t.Fatalf("unfrozen config must use a bounded-timeout client, got timeout %s", c.Timeout)
 	}
 }
 
