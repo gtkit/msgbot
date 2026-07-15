@@ -213,5 +213,5 @@ func (s *Stats) IncError() { s.totalError.Add(1) }
 // TotalSent 返回成功发送的消息总数。
 func (s *Stats) TotalSent() int64 { return s.totalSent.Load() }
 
-// TotalError 返回失败的消息尝试总数。
+// TotalError 返回发送失败的消息总数（按发送任务计，重试多次仅计一次）。
 func (s *Stats) TotalError() int64 { return s.totalError.Load() }

@@ -1,26 +1,10 @@
-.openspec-auto-backup/
-
-.openspec-auto/
-
 # 测试 / 覆盖率产物
 coverage.out
 *.out
 
-# Harness: 本地工具与 Agent 运行产物
+# 编辑器 / 系统产物
 .idea/
 .vscode/
 .Ds_Store
 .DS_Store
 *.log
-findings.md
-progress.md
-task_plan.md
-.harness/
-.claude/
-.codex/
-.agents/
-openspec/
-AGENTS.md
-CLAUDE.md
-tools/
-.harness/VERSION

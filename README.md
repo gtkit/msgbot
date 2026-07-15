@@ -38,7 +38,7 @@ return bot.SendText(context.Background(), "hello", msgbot.WithAtAll())
 | `msgbot.Provider` | 三平台通用发送接口（`SendText`/`SendMarkdown`/`SendRichText`/`SendImage`） |
 | `msgbot.Config` | provider 配置（`WebhookURL`/`Secret`/`HTTPClient`/`Timeout`/`Logger`/`Retry`） |
 | `msgbot.WithAtAll` / `WithAtUsers` | 发送选项：@所有人 / @指定人 |
-| `msgbot.NewManager` | 管理多个平台 Provider（`Get`/`Default`/`SetDefault`/`All`/`Multi` 等） |
+| `msgbot.NewManager` | 管理多个平台 Provider（`Get` 按平台取用，另有 `All`/`Multi`，可选 `SetDefault`/`Default`） |
 | `msgbot.NewMulti` | 并发广播到多个 Provider |
 | `msgbot.RetryPolicy` | 可选重试策略（`Config.Retry`，默认关闭） |
 | `msgbot.Error` / `msgbot.ErrorKind` | 结构化错误，可 `errors.As` 判类型 |
@@ -286,7 +286,7 @@ func dingtalkDemo() {
 
 ### 通用发送接口（三平台 Provider 共有）
 
-三个平台的 `*Webhook` 都实现 `msgbot.Provider` 接口，以下 4 个发送方法 + `Platform`/`Stats` 签名完全一致，可用 `msgbot.Provider` 统一持有：
+三个平台的 `*Webhook` 都实现 `msgbot.Provider` 接口，以下 4 个发送方法 + `Platform` 签名完全一致，可用 `msgbot.Provider` 统一持有：
 
 | 方法 | 签名要点 | 说明 |
 |------|---------|------|
@@ -295,7 +295,8 @@ func dingtalkDemo() {
 | `SendRichText` | `(ctx, msg *RichTextMessage) error` | 发送富文本；仅飞书原生，其余降级为 Markdown |
 | `SendImage` | `(ctx, img *ImageMessage) error` | 发送图片；各平台所需字段不同（见下） |
 | `Platform` | `() Platform` | 返回平台标识（`feishu`/`wecom`/`dingtalk`） |
-| `Stats` | `() *Stats` | 返回发送统计（`TotalSent` / `TotalError`） |
+
+> 关于 `Stats`：三平台的 `*Webhook` 还各自提供 `Stats() *msgbot.Stats`（返回 `TotalSent` / `TotalError` 两个进程内累计计数，按「发送任务」计而非每次重试尝试）。但它**不是 `msgbot.Provider` 接口的方法**——需通过具体类型（如 `*feishu.Webhook`）访问，用 `msgbot.Provider` 变量持有时无法调用。
 
 发送选项（`msgbot` 包）：
 
@@ -314,14 +315,21 @@ func dingtalkDemo() {
 | `(*App).SendImageMessage` | `(ctx, openID, path string) error` | 自建应用上传并按 open_id 发图片（单次操作内上传/发送同一 token） |
 | `GetAccessToken` | `(ctx, appID, appSecret string, client ...*http.Client) (*AccessToken, error)` | 直连获取自建应用 token |
 | `GetAccessTokenCached` | `(ctx, appID, appSecret string, cache TokenCache, client ...*http.Client) (*AccessToken, error)` | 带缓存获取，见下文 Access Token 缓存 |
-| `(*AccessToken).TenantToken` / `AppToken` | `() string` | 返回带 `Bearer ` 前缀的 tenant / app token |
-| `(*AccessToken).UploadImageWithToken` | `(ctx, path string, client ...*http.Client) (*UploadImageResp, error)` | 用该 token 上传本地图片 |
-| `(*AccessToken).DownloadImage` | `(ctx, imageKey, savePath string, client ...*http.Client) error` | 下载图片到本地 |
+| `BuildRichText` | `(title, text string, link *RichTextTag, atAll bool) *RichTextMessage` | 快速构造单行富文本 |
+| `BuildRichTextLines` | `(title string, lines ...[]RichTextTag) *RichTextMessage` | 由多行构造富文本 |
+
+#### 高级 / 扩展 API（飞书）
+
+以下面向「上传图片复用 image_key」「下载图片」「直接调用飞书其他开放 API」等进阶场景，普通消息推送用不到：
+
+| 方法 / 函数 | 签名要点 | 说明 |
+|------------|---------|------|
 | `UploadImageFromFile` | `(ctx, tenantAccessToken, path string, client ...*http.Client) (*UploadImageResp, error)` | 从文件路径上传，返回 image_key（限 10MB） |
 | `UploadImageFromReader` | `(ctx, tenantAccessToken, filename string, reader io.Reader, client ...*http.Client) (*UploadImageResp, error)` | 从任意 `io.Reader` 上传（限 10MB） |
 | `(*UploadImageResp).ImageKey` | `() string` | 取上传成功后的 image_key |
-| `BuildRichText` | `(title, text string, link *RichTextTag, atAll bool) *RichTextMessage` | 快速构造单行富文本 |
-| `BuildRichTextLines` | `(title string, lines ...[]RichTextTag) *RichTextMessage` | 由多行构造富文本 |
+| `(*AccessToken).UploadImageWithToken` | `(ctx, path string, client ...*http.Client) (*UploadImageResp, error)` | 用该 token 上传本地图片（等价 `UploadImageFromFile`） |
+| `(*AccessToken).DownloadImage` | `(ctx, imageKey, savePath string, client ...*http.Client) error` | 下载图片到本地 |
+| `(*AccessToken).TenantToken` / `AppToken` | `() string` | 返回带 `Bearer ` 前缀的 tenant / app token（供直接调用飞书其他开放 API） |
 
 ### 企业微信 `wecom`
 
@@ -389,7 +397,7 @@ app, _ = feishu.NewAppWithTokenSource(func(ctx context.Context) (*feishu.AccessT
 
 ### 多平台管理：`msgbot.NewManager` / `msgbot.NewMulti`
 
-- `func NewManager(providers ...Provider) *Manager`：注册多个平台 Provider，第一个非 nil 作为默认平台；nil 跳过，同平台后者覆盖前者。方法：`Get(Platform)`、`Default()`、`SetDefault(Platform) error`（未注册平台返回错误）、`Feishu()`/`WeCom()`/`DingTalk()`、`All()`、`Multi() (*Multi, error)`。
+- `func NewManager(providers ...Provider) *Manager`：注册多个平台 Provider（nil 跳过，同平台后者覆盖前者）。推荐用 `Get(Platform)` 按平台**显式**取用；`All()` 取全部、`Multi() (*Multi, error)` 转广播分发器。如需「默认平台」语义，用 `SetDefault(Platform) error`（未注册平台返回错误）显式指定后由 `Default()` 读取——未显式设置时默认为第一个注册的 Provider（隐式行为，不建议依赖）。另有 `Feishu()`/`WeCom()`/`DingTalk()` 三个固定平台便捷 getter。
 - `func NewMulti(providers ...Provider) (*Multi, error)`：并发广播分发器，至少一个 provider；nil provider 返回错误。方法与 Provider 同名（`SendText`/`SendMarkdown`/`SendRichText`/`SendImage`），部分失败以 `errors.Join` 聚合返回。
 
 ### Token 缓存：`*.NewMemoryTokenCache`
@@ -494,21 +502,7 @@ bot, _ := feishu.New(msgbot.Config{WebhookURL: "...", Logger: gtkitLogger{}})
 
 ## Web 框架集成
 
-`msgbot` 不依赖任何 Web 框架。在 Gin 等框架中使用时，通过闭包注入 Manager 即可：
-
-```go
-func alertHandler(mgr *msgbot.Manager) gin.HandlerFunc {
-    return func(c *gin.Context) {
-        _ = mgr.Default().SendText(c.Request.Context(), "告警")
-        c.JSON(200, gin.H{"status": "ok"})
-    }
-}
-
-mgr := msgbot.NewManager(fs, wc, dt)
-
-r := gin.Default()
-r.POST("/alert", alertHandler(mgr))
-```
+`msgbot` 不依赖任何 Web 框架。Provider（或 `Manager`/`Multi`）可作为普通依赖注入任意 HTTP handler——用闭包捕获或放进应用的依赖容器均可，在 handler 内调用 `Get(platform).SendText(...)` 等方法即可，无需额外适配。
 
 ## License
 
