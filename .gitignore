@@ -2,6 +2,10 @@
 
 .openspec-auto/
 
+# 测试 / 覆盖率产物
+coverage.out
+*.out
+
 # Harness: 本地工具与 Agent 运行产物
 .idea/
 .vscode/

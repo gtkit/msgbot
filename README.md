@@ -31,21 +31,24 @@ return bot.SendText(context.Background(), "hello", msgbot.WithAtAll())
 
 ## API 概览
 
+导航表；每个平台的完整可调用方法见 [方法一览](#方法一览)，所有构造函数见 [构造函数详解](#构造函数详解)。
+
 | API | 说明 |
 |-----|------|
-| `msgbot.Provider` | 三平台通用发送接口 |
-| `msgbot.NewManager` | 管理多个平台 Provider |
+| `msgbot.Provider` | 三平台通用发送接口（`SendText`/`SendMarkdown`/`SendRichText`/`SendImage`） |
+| `msgbot.Config` | provider 配置（`WebhookURL`/`Secret`/`HTTPClient`/`Timeout`/`Logger`/`Retry`） |
+| `msgbot.WithAtAll` / `WithAtUsers` | 发送选项：@所有人 / @指定人 |
+| `msgbot.NewManager` | 管理多个平台 Provider（`Get`/`Default`/`SetDefault`/`All`/`Multi` 等） |
 | `msgbot.NewMulti` | 并发广播到多个 Provider |
-| `feishu.New` | 创建飞书 Webhook Provider |
-| `feishu.GetAccessToken` | 获取飞书自建应用 token |
-| `*.GetAccessTokenCached` | 带缓存获取 token（三平台同形态） |
-| `*.NewMemoryTokenCache` | 进程内默认 token 缓存（三平台同形态） |
-| `feishu.NewApp` | 创建飞书自建应用消息客户端（静态 token） |
-| `feishu.NewAppWithTokenSource` | 创建可自动刷新 token 的应用消息客户端 |
-| `wecom.New` | 创建企业微信 Webhook Provider |
-| `dingtalk.New` | 创建钉钉 Webhook Provider |
-| `msgbot.Error` / `msgbot.ErrorKind` | 结构化错误，可 `errors.As` 判类型 |
 | `msgbot.RetryPolicy` | 可选重试策略（`Config.Retry`，默认关闭） |
+| `msgbot.Error` / `msgbot.ErrorKind` | 结构化错误，可 `errors.As` 判类型 |
+| `feishu.New` / `wecom.New` / `dingtalk.New` | 创建各平台 Webhook Provider |
+| `feishu.NewApp` / `feishu.NewAppWithTokenSource` | 创建飞书自建应用消息客户端（静态 / 可刷新 token） |
+| `*.GetAccessToken` / `*.GetAccessTokenCached` | 直连 / 带缓存获取 token（三平台同形态） |
+| `*.NewMemoryTokenCache` | 进程内默认 token 缓存（三平台同形态） |
+| `feishu.BuildRichText` / `BuildRichTextLines` | 构造飞书富文本消息 |
+| `wecom.BuildImageMessage` | 从字节构造企微图片消息 |
+| `dingtalk.ActionCard` / `FeedLink` | 钉钉特有的卡片/图文载体 |
 
 ## 飞书
 
@@ -278,6 +281,120 @@ func dingtalkDemo() {
     }
 }
 ```
+
+## 方法一览
+
+### 通用发送接口（三平台 Provider 共有）
+
+三个平台的 `*Webhook` 都实现 `msgbot.Provider` 接口，以下 4 个发送方法 + `Platform`/`Stats` 签名完全一致，可用 `msgbot.Provider` 统一持有：
+
+| 方法 | 签名要点 | 说明 |
+|------|---------|------|
+| `SendText` | `(ctx, text string, opts ...SendOption) error` | 发送纯文本，支持 `WithAtAll` / `WithAtUsers` |
+| `SendMarkdown` | `(ctx, title, content string, opts ...SendOption) error` | 发送 Markdown（飞书为互动卡片，钉钉 title 必填） |
+| `SendRichText` | `(ctx, msg *RichTextMessage) error` | 发送富文本；仅飞书原生，其余降级为 Markdown |
+| `SendImage` | `(ctx, img *ImageMessage) error` | 发送图片；各平台所需字段不同（见下） |
+| `Platform` | `() Platform` | 返回平台标识（`feishu`/`wecom`/`dingtalk`） |
+| `Stats` | `() *Stats` | 返回发送统计（`TotalSent` / `TotalError`） |
+
+发送选项（`msgbot` 包）：
+
+| 选项 | 说明 |
+|------|------|
+| `WithAtAll()` | @所有人 |
+| `WithAtUsers(ids ...string)` | @指定人；飞书传 user_id/open_id、企微传 userid、钉钉传手机号 |
+
+### 飞书 `feishu`
+
+| 方法 / 函数 | 签名要点 | 说明 |
+|------------|---------|------|
+| `(*Webhook).SendText/SendMarkdown/SendRichText/SendImage` | 见通用接口 | `SendImage` 需 `ImageMessage.ImageKey`（上传后获得） |
+| `(*Webhook).SendImageFromFile` | `(ctx, tenantAccessToken, path string) error` | 便捷方法：先上传本地图片拿 image_key 再发 |
+| `(*App).SendTextMessage` | `(ctx, openID, text string) error` | 自建应用按 open_id 发文本 |
+| `(*App).SendImageMessage` | `(ctx, openID, path string) error` | 自建应用上传并按 open_id 发图片（单次操作内上传/发送同一 token） |
+| `GetAccessToken` | `(ctx, appID, appSecret string, client ...*http.Client) (*AccessToken, error)` | 直连获取自建应用 token |
+| `GetAccessTokenCached` | `(ctx, appID, appSecret string, cache TokenCache, client ...*http.Client) (*AccessToken, error)` | 带缓存获取，见下文 Access Token 缓存 |
+| `(*AccessToken).TenantToken` / `AppToken` | `() string` | 返回带 `Bearer ` 前缀的 tenant / app token |
+| `(*AccessToken).UploadImageWithToken` | `(ctx, path string, client ...*http.Client) (*UploadImageResp, error)` | 用该 token 上传本地图片 |
+| `(*AccessToken).DownloadImage` | `(ctx, imageKey, savePath string, client ...*http.Client) error` | 下载图片到本地 |
+| `UploadImageFromFile` | `(ctx, tenantAccessToken, path string, client ...*http.Client) (*UploadImageResp, error)` | 从文件路径上传，返回 image_key（限 10MB） |
+| `UploadImageFromReader` | `(ctx, tenantAccessToken, filename string, reader io.Reader, client ...*http.Client) (*UploadImageResp, error)` | 从任意 `io.Reader` 上传（限 10MB） |
+| `(*UploadImageResp).ImageKey` | `() string` | 取上传成功后的 image_key |
+| `BuildRichText` | `(title, text string, link *RichTextTag, atAll bool) *RichTextMessage` | 快速构造单行富文本 |
+| `BuildRichTextLines` | `(title string, lines ...[]RichTextTag) *RichTextMessage` | 由多行构造富文本 |
+
+### 企业微信 `wecom`
+
+| 方法 / 函数 | 签名要点 | 说明 |
+|------------|---------|------|
+| `(*Webhook).SendText/SendMarkdown/SendRichText/SendImage` | 见通用接口 | `SendImage` 需 `ImageMessage.Base64` + `MD5`；Markdown 无法 @ 指定人 |
+| `(*Webhook).SendImageFromFile` | `(ctx, path string) error` | 读本地文件、自动算 base64+md5 发送（限 2MB） |
+| `BuildImageMessage` | `(data []byte) *ImageMessage` | 从字节构造图片消息（base64+md5） |
+| `GetAccessToken` | `(ctx, corpID, corpSecret string, client ...*http.Client) (*AccessToken, error)` | 直连获取 token |
+| `GetAccessTokenCached` | `(ctx, corpID, corpSecret string, cache TokenCache, client ...*http.Client) (*AccessToken, error)` | 带缓存获取 |
+| `(*AccessToken).Token` | `() string` | 返回 access_token 字符串 |
+
+### 钉钉 `dingtalk`
+
+| 方法 / 函数 | 签名要点 | 说明 |
+|------------|---------|------|
+| `(*Webhook).SendText/SendMarkdown/SendRichText/SendImage` | 见通用接口 | `SendMarkdown` title 必填；`SendImage` 需 `ImageMessage.PicURL`（公网 URL） |
+| `(*Webhook).SendLink` | `(ctx, title, text, messageURL, picURL string) error` | 发送 Link 消息（钉钉特有） |
+| `(*Webhook).SendActionCard` | `(ctx, card *ActionCard) error` | 发送 ActionCard 按钮卡片 |
+| `(*Webhook).SendFeedCard` | `(ctx, links []FeedLink) error` | 发送 FeedCard 图文列表 |
+| `(*Webhook).SendImageFromURL` | `(ctx, picURL string) error` | 便捷方法：以公网 URL 发图 |
+| `GetAccessToken` | `(ctx, appKey, appSecret string, client ...*http.Client) (*AccessToken, error)` | 直连获取企业内部应用 token |
+| `GetAccessTokenCached` | `(ctx, appKey, appSecret string, cache TokenCache, client ...*http.Client) (*AccessToken, error)` | 带缓存获取 |
+| `(*AccessToken).Token` | `() string` | 返回 access_token 字符串 |
+
+钉钉特有的消息载体类型：`ActionCard{Title, Text, SingleTitle, SingleURL, BtnOrientation, Buttons}`、`Button{Title, ActionURL}`、`FeedLink{Title, MessageURL, PicURL}`。
+
+## 构造函数详解
+
+### Webhook 机器人：`feishu.New` / `wecom.New` / `dingtalk.New`
+
+三平台签名一致：`func New(cfg msgbot.Config) (*Webhook, error)`。`WebhookURL` 非法或为空会返回 error，务必检查。`msgbot.Config` 字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `WebhookURL` | `string` | **必填**，机器人 hook 地址 |
+| `Secret` | `string` | 可选，加签密钥（飞书/钉钉「加签」安全设置；企微 webhook 不使用） |
+| `HTTPClient` | `*http.Client` | 可选，自定义客户端；为 nil 时用带超时的默认客户端 |
+| `Timeout` | `time.Duration` | 可选，`HTTPClient` 为 nil 时的超时，默认 10s |
+| `Logger` | `msgbot.Logger` | 可选，调试/错误日志接口；为 nil 则不记日志 |
+| `Retry` | `msgbot.RetryPolicy` | 可选，重试策略，零值关闭（见「错误处理与重试」） |
+
+```go
+fs, err := feishu.New(msgbot.Config{WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/xxx", Secret: "SEC..."})
+wc, err := wecom.New(msgbot.Config{WebhookURL: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"})
+dt, err := dingtalk.New(msgbot.Config{WebhookURL: "https://oapi.dingtalk.com/robot/send?access_token=xxx", Secret: "SEC..."})
+```
+
+### 飞书自建应用：`feishu.NewApp` / `feishu.NewAppWithTokenSource`
+
+- `func NewApp(token *AccessToken, client ...*http.Client) (*App, error)`：从**静态 token** 创建。token 按原样使用、不会刷新，过期后需重建客户端。适合一次性或短生命周期场景。
+- `func NewAppWithTokenSource(source TokenSource, client ...*http.Client) (*App, error)`：从 `TokenSource`（`func(context.Context) (*AccessToken, error)`）创建，**每次操作自动解析最新 token**，可刷新过期 token。长期运行的服务推荐用它，配合 `GetAccessTokenCached` 不会频繁请求。`source` 需并发安全。
+
+```go
+// 静态 token
+token, _ := feishu.GetAccessToken(ctx, "cli_xxx", "secret_xxx")
+app, _ := feishu.NewApp(token)
+
+// 可刷新 token（推荐）
+var cache = feishu.NewMemoryTokenCache()
+app, _ = feishu.NewAppWithTokenSource(func(ctx context.Context) (*feishu.AccessToken, error) {
+    return feishu.GetAccessTokenCached(ctx, "cli_xxx", "secret_xxx", cache)
+})
+```
+
+### 多平台管理：`msgbot.NewManager` / `msgbot.NewMulti`
+
+- `func NewManager(providers ...Provider) *Manager`：注册多个平台 Provider，第一个非 nil 作为默认平台；nil 跳过，同平台后者覆盖前者。方法：`Get(Platform)`、`Default()`、`SetDefault(Platform) error`（未注册平台返回错误）、`Feishu()`/`WeCom()`/`DingTalk()`、`All()`、`Multi() (*Multi, error)`。
+- `func NewMulti(providers ...Provider) (*Multi, error)`：并发广播分发器，至少一个 provider；nil provider 返回错误。方法与 Provider 同名（`SendText`/`SendMarkdown`/`SendRichText`/`SendImage`），部分失败以 `errors.Join` 聚合返回。
+
+### Token 缓存：`*.NewMemoryTokenCache`
+
+三平台各有 `func NewMemoryTokenCache() *MemoryTokenCache`：进程内默认缓存，基于 `atomic.Pointer` 零锁并发安全。**一个实例只服务一组凭证**，多组凭证各自创建。多实例部署需共享 token 时，实现各包的 `TokenCache` 接口接入 Redis（见下文）。
 
 ## Access Token 缓存
 
