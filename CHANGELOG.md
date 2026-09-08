@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-08
+
 本版本对标 `github.com/nikoksr/notify` 补齐分发编排层的四项能力，全部为新增，无破坏性变更，`go.mod` 仍无任何第三方依赖。
 
 ### Added
