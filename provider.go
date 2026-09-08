@@ -36,7 +36,35 @@ const (
 	PlatformFeishu   Platform = "feishu"
 	PlatformWeCom    Platform = "wecom"
 	PlatformDingTalk Platform = "dingtalk"
+	// PlatformWebhook 标识 webhook 包提供的通用 HTTP(S) 端点 provider。
+	PlatformWebhook Platform = "webhook"
 )
+
+// Switch 是可在运行期翻转的发送开关。零值即启用，因此 nil 的 *Switch
+// 也被视为启用。Disable 之后，所有共享该实例的 provider 的 Send* 调用都
+// 直接返回 nil：不发出请求、不计入 Stats，并记一条 debug 日志。
+//
+// 它的作用域就是「共享该实例的那些 provider」——本包没有全局开关，
+// 想让哪些 provider 一起静音，就把同一个 *Switch 放进它们的 Config。
+// 状态存放在 atomic.Bool 中，可被多个 goroutine 并发读写。
+type Switch struct {
+	off atomic.Bool
+}
+
+// NewSwitch 返回一个处于启用状态的开关。
+func NewSwitch() *Switch { return &Switch{} }
+
+// Enable 恢复发送。对 nil 接收者调用会 panic——静默忽略一次 Enable
+// 会让调用方以为已恢复发送。
+func (s *Switch) Enable() { s.off.Store(false) }
+
+// Disable 静音发送。对 nil 接收者调用会 panic——静默忽略一次 Disable
+// 会让调用方以为已停发，实际仍在发送。
+func (s *Switch) Disable() { s.off.Store(true) }
+
+// Enabled 报告当前是否允许发送。nil 接收者返回 true，
+// 使「未配置开关」与「开关处于启用态」是同一件事。
+func (s *Switch) Enabled() bool { return s == nil || !s.off.Load() }
 
 // SendOption 为消息应用可选参数。
 type SendOption func(*SendOptions)
@@ -117,6 +145,11 @@ type Config struct {
 	Logger     Logger        // 可选：用于调试/错误日志的 logger；为 nil 时禁用日志。
 	Retry      RetryPolicy   // 可选：发送失败的重试策略；零值禁用重试。
 
+	// Switch 可选：运行期发送开关，为 nil 时始终启用。多个 provider 共享
+	// 同一实例即可被一次 Disable 同时静音；静音期间 Send* 返回 nil 且不计入 Stats。
+	// 与其他字段不同，Switch 在构造后仍可翻转——provider 持有的是指针。
+	Switch *Switch
+
 	// frozen 是解析后的 HTTP 客户端，由 Freeze() 设置一次。
 	// 冻结后，GetHTTPClient() 始终返回同一个实例。
 	frozen *http.Client
@@ -150,6 +183,10 @@ func (c *Config) GetHTTPClient() *http.Client {
 	}
 	return internal.DefaultClient()
 }
+
+// Muted 报告发送是否已被 Switch 静音。面向 Provider 扩展使用：在实际发送
+// 之前还会额外发起网络请求的便捷方法，应先用它提前返回。
+func (c *Config) Muted() bool { return !c.Switch.Enabled() }
 
 // LogDebug 在已配置 logger 时记录一条调试日志。
 func (c *Config) LogDebug(ctx context.Context, msg string, args ...any) {

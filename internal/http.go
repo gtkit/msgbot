@@ -17,7 +17,10 @@ import (
 // 响应体限制为 1MB，以防意外的超大响应。
 func PostJSON(ctx context.Context, client *http.Client, url string, body []byte) ([]byte, error) {
 	if client == nil {
-		client = http.DefaultClient
+		// 绝不回退到无超时的 http.DefaultClient——那会让一次挂住的请求
+		// 永久占住调用方的 goroutine。当前所有调用方都保证传入非 nil client，
+		// 这里只是把该保证兜住，而非允许无超时路径存在。
+		client = DefaultClient()
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))

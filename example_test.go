@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gtkit/msgbot"
+	"github.com/gtkit/msgbot/feishu"
 )
 
 func ExampleWithAtAll() {
@@ -83,4 +84,51 @@ func ExampleConfig_Send() {
 	// Output:
 	// <nil>
 	// 1
+}
+
+func ExampleSwitch() {
+	// 一个开关可以同时静音多个 provider：把同一实例放进它们的 Config。
+	gate := msgbot.NewSwitch()
+	cfg := msgbot.Config{WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/xxx", Switch: gate}
+
+	fmt.Println(cfg.Muted())
+	gate.Disable() // 静音期间 Send* 返回 nil，不发请求、不计入 Stats。
+	fmt.Println(cfg.Muted())
+	gate.Enable()
+	fmt.Println(cfg.Muted())
+	// Output:
+	// false
+	// true
+	// false
+}
+
+func ExampleNewNamedManager() {
+	// 同平台多目标：两个飞书机器人以不同名字共存，互不覆盖。
+	p0, err := feishu.New(msgbot.Config{WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/p0"})
+	if err != nil {
+		return
+	}
+	oncall, err := feishu.New(msgbot.Config{WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/oncall"})
+	if err != nil {
+		return
+	}
+
+	mgr, err := msgbot.NewNamedManager(
+		msgbot.Named("p0", p0),
+		msgbot.Named("oncall", oncall),
+	)
+	if err != nil {
+		return
+	}
+
+	fmt.Println(mgr.Names())
+	fmt.Println(len(mgr.All()))
+	// 按平台索引只能取到该平台最后注册的那个，因此精确投递用 GetNamed。
+	fmt.Println(mgr.GetNamed("p0") == msgbot.Provider(p0))
+	fmt.Println(mgr.Get(msgbot.PlatformFeishu) == msgbot.Provider(oncall))
+	// Output:
+	// [p0 oncall]
+	// 2
+	// true
+	// true
 }

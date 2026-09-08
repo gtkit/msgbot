@@ -31,6 +31,13 @@ type BuildRequest func() (url string, payload any, err error)
 // 这是各平台 webhook provider 共用的发送路径；终端用户通常调用 provider 的
 // Send* 方法，而非直接调用 Send。
 func (c *Config) Send(ctx context.Context, stats *Stats, platform Platform, op string, build BuildRequest) error {
+	// Switch 静音：这是全部 webhook 发送的唯一收口点，因此在这里短路即可覆盖
+	// 三个平台的所有消息类型。既不成功也不失败，故两侧计数都不动。
+	if c.Muted() {
+		c.LogDebug(ctx, string(platform)+": muted by switch, message dropped", "op", op)
+		return nil
+	}
+
 	// stats 每个发送任务只记录一次（而非每次重试尝试）；单次尝试的失败仍会
 	// 记录日志以便诊断。
 	err := c.Retry.do(ctx, func(ctx context.Context) error {
@@ -39,7 +46,9 @@ func (c *Config) Send(ctx context.Context, stats *Stats, platform Platform, op s
 			if e, ok := errors.AsType[*Error](err); ok {
 				return e
 			}
-			return &Error{Platform: platform, Operation: op, Kind: KindValidation, Message: err.Error(), Err: err}
+			// 只挂 Err，不再把 err.Error() 复制进 Message——两者都填会让
+			// Error() 把同一句原因打印两遍。
+			return &Error{Platform: platform, Operation: op, Kind: KindValidation, Err: err}
 		}
 
 		body, err := internal.Marshal(payload)

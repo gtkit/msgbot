@@ -138,6 +138,13 @@ func UploadImageFromReader(ctx context.Context, tenantAccessToken, filename stri
 // SendImageFromFile 上传本地图片并直接发送到飞书群（webhook 方式）.
 // 内部先调用 UploadImageFromFile 获取 image_key，再通过 webhook 发送.
 func (w *Webhook) SendImageFromFile(ctx context.Context, tenantAccessToken, path string) error {
+	// 上传本身是一次真实的飞书 API 调用，发生在 SendImage 之前，因此静音必须在
+	// 这里就提前返回——只靠 Config.Send 的收口点检查会让「已停发」状态仍打飞书。
+	if w.cfg.Muted() {
+		w.cfg.LogDebug(ctx, "feishu: muted by switch, image upload skipped")
+		return nil
+	}
+
 	uploadResp, err := UploadImageFromFile(ctx, tenantAccessToken, path, w.cfg.GetHTTPClient())
 	if err != nil {
 		return err

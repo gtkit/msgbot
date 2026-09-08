@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+本版本对标 `github.com/nikoksr/notify` 补齐分发编排层的四项能力，全部为新增，无破坏性变更，`go.mod` 仍无任何第三方依赖。
+
+### Added
+
+- 新增运行期发送开关 `msgbot.Switch` 与 `Config.Switch`（为 nil 时始终启用）：关闭期间 `Send*` 直接返回 `nil`，不发出请求、不计入 `Stats`，并记一条 debug 日志。多个 provider 共享同一实例即可被一次 `Disable` 同时静音；`feishu.Webhook.SendImageFromFile` 在上传之前就检查开关，静音期间不会调用飞书上传 API。
+- 新增 `msgbot.NewNamedManager` 与 `msgbot.NamedProvider` / `Named`：按名字注册 provider，使同一平台可以有多个目标（P0 群 / 值班群 / 归档群）。配套 `Manager.GetNamed` 与 `Manager.Names`；空参数、空名字、重名与 nil provider 均返回错误。具名 provider 同时进入平台索引，`Get` / `Default` 等照常可用。
+- 新增 `webhook` 包与 `msgbot.PlatformWebhook`：面向任意绝对 HTTP(S) 端点的通用 `Provider`，请求体由调用方通过 `PayloadBuilder` 决定，四种消息类型归一化为带 `Kind` 判别字段的 `webhook.Message`。发送路径复用 `Config.Send`，重试、结构化错误、日志脱敏、`Stats` 与发送开关的行为与三平台一致。
+- 新增 `feishu.AppConfig` 与 `feishu.NewAppWithConfig`：以结构体字面量配置飞书应用消息客户端，是唯一能配 `Switch` 发送开关的构造函数，使「一键停发」覆盖到飞书应用消息。`Token` 与 `Source` 二选一且必须恰好提供一个（都空或都给都返回错误）。静音时 App 的 `Send*` 在参数校验通过后返回 nil，不解析 token、不上传图片、不发请求；参数校验优先于静音。`NewApp` / `NewAppWithTokenSource` 的签名与行为不变，创建的 App 无开关、始终启用。
+- 新增 `feishu.ReceiveIDType` 与 `App.SendTextMessageTo` / `App.SendImageMessageTo`：飞书应用消息支持 `open_id`、`user_id`、`union_id`、`email`、`chat_id` 五种收件人类型，白名单之外的取值在本地返回校验错误且不解析 token。
+
+### Changed
+
+- `Manager.All()` 改为按注册顺序返回副本（此前遍历 map，顺序随机），`Multi()` 因此也有了确定的发送顺序。`NewManager` 下被同平台后者覆盖掉的 provider 仍不会出现在结果中。
+- `App.SendTextMessage` / `App.SendImageMessage` 改为委托到对应的 `*To` 方法，签名与语义不变；空收件人的校验文案由 `open_id is required` 改为 `receive_id is required`（错误分类仍为 `KindValidation`）。
+
+### Fixed
+
+- `Config.Send` 在 `BuildRequest` 返回非 `*msgbot.Error` 错误时，此前同时填充 `Message` 与 `Err`，导致 `Error()` 把同一句原因打印两遍（如 `validation: generate sign: xxx: generate sign: xxx`）。现在只保留被包裹的原因。
+- `internal.PostJSON` 在 client 为 nil 时不再回退到无超时的 `http.DefaultClient`，改为带 10s 超时的共享 client。此前该分支与库内三处「绝不落到无超时 client」的声明相矛盾；当前所有调用方都传入非 nil client，故无行为变化。
+
 ## [1.2.0] - 2026-07-15
 
 ### Changed

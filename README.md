@@ -36,14 +36,19 @@ return bot.SendText(context.Background(), "hello", msgbot.WithAtAll())
 | API | 说明 |
 |-----|------|
 | `msgbot.Provider` | 三平台通用发送接口（`SendText`/`SendMarkdown`/`SendRichText`/`SendImage`） |
-| `msgbot.Config` | provider 配置（`WebhookURL`/`Secret`/`HTTPClient`/`Timeout`/`Logger`/`Retry`） |
+| `msgbot.Config` | provider 配置（`WebhookURL`/`Secret`/`HTTPClient`/`Timeout`/`Logger`/`Retry`/`Switch`） |
 | `msgbot.WithAtAll` / `WithAtUsers` | 发送选项：@所有人 / @指定人 |
+| `msgbot.NewSwitch` | 运行期发送开关（`Config.Switch`，关闭时 `Send*` 返回 nil 且不发请求） |
 | `msgbot.NewManager` | 管理多个平台 Provider（`Get` 按平台取用，另有 `All`/`Multi`，可选 `SetDefault`/`Default`） |
+| `msgbot.NewNamedManager` | 按名字注册 Provider，支持同平台多目标（`GetNamed`/`Names`） |
 | `msgbot.NewMulti` | 并发广播到多个 Provider |
+| `webhook.New` | 通用 webhook Provider：向任意 HTTP(S) 端点发送自定义 JSON |
 | `msgbot.RetryPolicy` | 可选重试策略（`Config.Retry`，默认关闭） |
 | `msgbot.Error` / `msgbot.ErrorKind` | 结构化错误，可 `errors.As` 判类型 |
 | `feishu.New` / `wecom.New` / `dingtalk.New` | 创建各平台 Webhook Provider |
 | `feishu.NewApp` / `feishu.NewAppWithTokenSource` | 创建飞书自建应用消息客户端（静态 / 可刷新 token） |
+| `feishu.NewAppWithConfig` | 以 `feishu.AppConfig` 创建应用消息客户端，可配发送开关 |
+| `feishu.ReceiveIDType` | 飞书应用消息收件人类型（`open_id`/`user_id`/`union_id`/`email`/`chat_id`） |
 | `*.GetAccessToken` / `*.GetAccessTokenCached` | 直连 / 带缓存获取 token（三平台同形态） |
 | `*.NewMemoryTokenCache` | 进程内默认 token 缓存（三平台同形态） |
 | `feishu.BuildRichText` / `BuildRichTextLines` | 构造飞书富文本消息 |
@@ -128,6 +133,17 @@ err = app.SendTextMessage(ctx, "ou_xxx", "应用消息")
 err = app.SendImageMessage(ctx, "ou_xxx", "/path/to/image.png")
 err = token.DownloadImage(ctx, "img_xxx", "/path/to/save.png")
 ```
+
+收件人不是 `open_id` 时用 `*To` 方法指定类型，支持 `open_id`、`user_id`、`union_id`、`email`、`chat_id` 五种：
+
+```go
+// 按 chat_id 发到群
+err = app.SendTextMessageTo(ctx, feishu.ReceiveIDChatID, "oc_xxx", "群通知")
+// 按邮箱发给个人
+err = app.SendTextMessageTo(ctx, feishu.ReceiveIDEmail, "someone@example.com", "私信")
+```
+
+白名单之外的类型（含空值）会在本地返回校验错误，不解析 token、也不发出请求。`SendTextMessage` / `SendImageMessage` 等价于以 `feishu.ReceiveIDOpenID` 调用 `*To` 方法。
 
 建议使用 `feishu.GetAccessTokenCached` 自动缓存 token，见下文 [Access Token 缓存](#access-token-缓存)。
 
@@ -286,7 +302,7 @@ func dingtalkDemo() {
 
 ### 通用发送接口（三平台 Provider 共有）
 
-三个平台的 `*Webhook` 都实现 `msgbot.Provider` 接口，以下 4 个发送方法 + `Platform` 签名完全一致，可用 `msgbot.Provider` 统一持有：
+三个平台的 `*Webhook`（以及 `webhook` 包的通用 Provider）都实现 `msgbot.Provider` 接口，以下 4 个发送方法 + `Platform` 签名完全一致，可用 `msgbot.Provider` 统一持有：
 
 | 方法 | 签名要点 | 说明 |
 |------|---------|------|
@@ -294,9 +310,9 @@ func dingtalkDemo() {
 | `SendMarkdown` | `(ctx, title, content string, opts ...SendOption) error` | 发送 Markdown（飞书为互动卡片，钉钉 title 必填） |
 | `SendRichText` | `(ctx, msg *RichTextMessage) error` | 发送富文本；仅飞书原生，其余降级为 Markdown |
 | `SendImage` | `(ctx, img *ImageMessage) error` | 发送图片；各平台所需字段不同（见下） |
-| `Platform` | `() Platform` | 返回平台标识（`feishu`/`wecom`/`dingtalk`） |
+| `Platform` | `() Platform` | 返回平台标识（`feishu`/`wecom`/`dingtalk`/`webhook`） |
 
-> 关于 `Stats`：三平台的 `*Webhook` 还各自提供 `Stats() *msgbot.Stats`（返回 `TotalSent` / `TotalError` 两个进程内累计计数，按「发送任务」计而非每次重试尝试）。但它**不是 `msgbot.Provider` 接口的方法**——需通过具体类型（如 `*feishu.Webhook`）访问，用 `msgbot.Provider` 变量持有时无法调用。
+> 关于 `Stats`：三平台的 `*Webhook` 与 `webhook.Webhook` 还各自提供 `Stats() *msgbot.Stats`（返回 `TotalSent` / `TotalError` 两个进程内累计计数，按「发送任务」计而非每次重试尝试）。但它**不是 `msgbot.Provider` 接口的方法**——需通过具体类型（如 `*feishu.Webhook`）访问，用 `msgbot.Provider` 变量持有时无法调用。
 
 发送选项（`msgbot` 包）：
 
@@ -313,6 +329,9 @@ func dingtalkDemo() {
 | `(*Webhook).SendImageFromFile` | `(ctx, tenantAccessToken, path string) error` | 便捷方法：先上传本地图片拿 image_key 再发 |
 | `(*App).SendTextMessage` | `(ctx, openID, text string) error` | 自建应用按 open_id 发文本 |
 | `(*App).SendImageMessage` | `(ctx, openID, path string) error` | 自建应用上传并按 open_id 发图片（单次操作内上传/发送同一 token） |
+| `(*App).SendTextMessageTo` | `(ctx, idType ReceiveIDType, receiveID, text string) error` | 按指定收件人类型发文本（如 `chat_id` 发群） |
+| `(*App).SendImageMessageTo` | `(ctx, idType ReceiveIDType, receiveID, path string) error` | 按指定收件人类型发图片 |
+| `NewAppWithConfig` | `(cfg AppConfig) (*App, error)` | 以 `AppConfig` 创建 App，可配 `Switch` 发送开关 |
 | `GetAccessToken` | `(ctx, appID, appSecret string, client ...*http.Client) (*AccessToken, error)` | 直连获取自建应用 token |
 | `GetAccessTokenCached` | `(ctx, appID, appSecret string, cache TokenCache, client ...*http.Client) (*AccessToken, error)` | 带缓存获取，见下文 Access Token 缓存 |
 | `BuildRichText` | `(title, text string, link *RichTextTag, atAll bool) *RichTextMessage` | 快速构造单行富文本 |
@@ -371,6 +390,7 @@ func dingtalkDemo() {
 | `Timeout` | `time.Duration` | 可选，`HTTPClient` 为 nil 时的超时，默认 10s |
 | `Logger` | `msgbot.Logger` | 可选，调试/错误日志接口；为 nil 则不记日志 |
 | `Retry` | `msgbot.RetryPolicy` | 可选，重试策略，零值关闭（见「错误处理与重试」） |
+| `Switch` | `*msgbot.Switch` | 可选，运行期发送开关；为 nil 则始终启用（见「发送开关」） |
 
 ```go
 fs, err := feishu.New(msgbot.Config{WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/xxx", Secret: "SEC..."})
@@ -382,6 +402,7 @@ dt, err := dingtalk.New(msgbot.Config{WebhookURL: "https://oapi.dingtalk.com/rob
 
 - `func NewApp(token *AccessToken, client ...*http.Client) (*App, error)`：从**静态 token** 创建。token 按原样使用、不会刷新，过期后需重建客户端。适合一次性或短生命周期场景。
 - `func NewAppWithTokenSource(source TokenSource, client ...*http.Client) (*App, error)`：从 `TokenSource`（`func(context.Context) (*AccessToken, error)`）创建，**每次操作自动解析最新 token**，可刷新过期 token。长期运行的服务推荐用它，配合 `GetAccessTokenCached` 不会频繁请求。`source` 需并发安全。
+- `func NewAppWithConfig(cfg AppConfig) (*App, error)`：以结构体字面量配置，是**唯一能配发送开关**的构造函数。`AppConfig` 字段：`Token`（静态 token）与 `Source`（可刷新）**二选一，必须恰好提供一个**（都为空或都提供都返回错误，不搞静默优先级）、`HTTPClient`（可选）、`Switch`（可选，见「发送开关」）。
 
 ```go
 // 静态 token
@@ -398,7 +419,14 @@ app, _ = feishu.NewAppWithTokenSource(func(ctx context.Context) (*feishu.AccessT
 ### 多平台管理：`msgbot.NewManager` / `msgbot.NewMulti`
 
 - `func NewManager(providers ...Provider) *Manager`：注册多个平台 Provider（nil 跳过，同平台后者覆盖前者）。推荐用 `Get(Platform)` 按平台**显式**取用；`All()` 取全部、`Multi() (*Multi, error)` 转广播分发器。如需「默认平台」语义，用 `SetDefault(Platform) error`（未注册平台返回错误）显式指定后由 `Default()` 读取——未显式设置时默认为第一个注册的 Provider（隐式行为，不建议依赖）。另有 `Feishu()`/`WeCom()`/`DingTalk()` 三个固定平台便捷 getter。
+- `func NewNamedManager(providers ...NamedProvider) (*Manager, error)`：按名字注册，**同平台可以有多个目标**。用 `Named("p0", fs)` 构造注册项，用 `GetNamed("p0")` 取用，`Names()` 按注册顺序列出全部名字。空参数、空名字、重名、nil provider 均返回错误。具名 provider 同时进入平台索引，`Get`/`Default` 等照常可用；同平台多个时平台索引沿用「后者覆盖前者」，`Default()` 为第一个注册项的平台。
 - `func NewMulti(providers ...Provider) (*Multi, error)`：并发广播分发器，至少一个 provider；nil provider 返回错误。方法与 Provider 同名（`SendText`/`SendMarkdown`/`SendRichText`/`SendImage`），部分失败以 `errors.Join` 聚合返回。
+
+`All()` 按注册顺序返回副本，每个注册项一条；`NewManager` 下被同平台后者覆盖掉的 provider 不会出现。`Multi()` 基于 `All()` 构造，因此具名注册下会向每个具名目标各发一次。
+
+### 通用 webhook：`webhook.New`
+
+`func New(cfg msgbot.Config, build PayloadBuilder) (*Webhook, error)`：向任意绝对 HTTP(S) 端点发送 `POST` + `application/json` 请求，请求体由 `build` 决定。`WebhookURL` 非法或为空、`build` 为 nil 时返回 error。`Platform()` 返回 `msgbot.PlatformWebhook`。
 
 ### Token 缓存：`*.NewMemoryTokenCache`
 
@@ -431,6 +459,108 @@ token, err := feishu.GetAccessTokenCached(ctx, "cli_xxx", "secret_xxx", tokenCac
 multi, _ := msgbot.NewMulti(fs, wc, dt)
 err := multi.SendText(ctx, "全平台通知", msgbot.WithAtAll())
 ```
+
+## 同平台多目标
+
+告警分级常常需要同一平台的多个机器人（P0 群、值班群、归档群）。`NewManager` 以平台为索引，同平台后者会覆盖前者；这种场景用 `NewNamedManager` 按名字注册：
+
+```go
+p0, _ := feishu.New(msgbot.Config{WebhookURL: p0Hook})
+oncall, _ := feishu.New(msgbot.Config{WebhookURL: oncallHook})
+archive, _ := dingtalk.New(msgbot.Config{WebhookURL: archiveHook, Secret: "SEC..."})
+
+mgr, err := msgbot.NewNamedManager(
+    msgbot.Named("p0", p0),
+    msgbot.Named("oncall", oncall),
+    msgbot.Named("archive", archive),
+)
+if err != nil {
+    return err
+}
+
+// 按名字精确投递
+_ = mgr.GetNamed("p0").SendText(ctx, "P0 故障", msgbot.WithAtAll())
+
+// 广播到全部三个目标（两个飞书群各收到一次）
+multi, _ := mgr.Multi()
+_ = multi.SendText(ctx, "演练通知")
+```
+
+名字是调用方给的标识，因此空名字与重名都返回错误而不是静默覆盖——否则某个群会永远收不到消息。`Names()` 按注册顺序返回全部名字的副本。
+
+具名 provider 同时进入平台索引，`Get`/`Feishu()`/`Default()` 等照常可用，但同平台多目标时它们只能取到该平台**最后**注册的那个（上例中 `Get(PlatformFeishu)` 与 `Default()` 都返回 `oncall`）。这种场景请用 `GetNamed` 精确取用。
+
+## 发送开关
+
+`Config.Switch` 是一个可在运行期翻转的发送开关，用于本地开发、压测与故障降级。关闭期间 `Send*` 直接返回 `nil`：不发出请求、不计入 `Stats`，并记一条 debug 日志（配了 `Logger` 时）说明消息被静音。
+
+```go
+gate := msgbot.NewSwitch() // 创建即启用
+
+// 多个 provider 共享同一个开关，一次 Disable 全部静音
+fs, _ := feishu.New(msgbot.Config{WebhookURL: feishuHook, Switch: gate})
+dt, _ := dingtalk.New(msgbot.Config{WebhookURL: dingHook, Switch: gate})
+
+if os.Getenv("APP_ENV") == "local" {
+    gate.Disable()
+}
+
+_ = fs.SendText(ctx, "这条在静音期间不会发出") // 返回 nil
+
+gate.Enable() // 恢复发送
+```
+
+开关的作用域就是「共享该实例的那些 provider」——本库没有全局开关。`Config.Switch` 为 nil 时始终启用，行为与不配置开关完全一致。
+
+`feishu.Webhook.SendImageFromFile` 会在上传之前就检查开关，因此静音期间不会调用飞书上传 API。
+
+飞书应用消息也受同一个开关控制，但要用 `feishu.NewAppWithConfig` 构造（`NewApp` / `NewAppWithTokenSource` 没有开关字段，创建出的 App 始终启用）：
+
+```go
+app, err := feishu.NewAppWithConfig(feishu.AppConfig{
+    Source: func(ctx context.Context) (*feishu.AccessToken, error) {
+        return feishu.GetAccessTokenCached(ctx, "cli_xxx", "secret_xxx", tokenCache)
+    },
+    Switch: gate, // 与上面三个 webhook provider 共用一个开关
+})
+```
+
+静音期间 App 的 `Send*` 在参数校验通过后直接返回 nil：不解析 token、不上传图片、不发请求。**参数校验优先于静音**——静音是运维开关，不该把写错的调用一起吞掉，否则要等恢复发送才暴露。
+
+因为静音时返回的是 `nil`，它是运维开关而不是错误注入手段：需要在静音期间感知「消息被丢弃」时，看 debug 日志或 `Stats`（两个计数都不增长）。
+
+## 通用 webhook
+
+`webhook` 包把任意 HTTP(S) 端点接成一个 `msgbot.Provider`，请求体由调用方决定，发送路径复用 `Config.Send`，因此重试、结构化错误、日志脱敏、`Stats` 与发送开关的行为与三个平台完全一致。请求固定为 `POST` + `application/json; charset=utf-8`。
+
+四种消息类型被归一化成一个 `webhook.Message`，按 `Kind` 判别读哪些字段，因此只需实现一个构造函数：
+
+```go
+import "github.com/gtkit/msgbot/webhook"
+
+hook, err := webhook.New(
+    msgbot.Config{WebhookURL: "https://hooks.example.com/alert", Retry: msgbot.RetryPolicy{MaxRetries: 2}},
+    func(m *webhook.Message) (any, error) {
+        switch m.Kind {
+        case webhook.KindText:
+            return map[string]any{"text": m.Text, "at_all": m.Options.AtAll}, nil
+        case webhook.KindMarkdown:
+            return map[string]any{"title": m.Title, "body": m.Content}, nil
+        default:
+            return nil, fmt.Errorf("端点不支持 %s 消息", m.Kind)
+        }
+    },
+)
+if err != nil {
+    return err
+}
+
+err = hook.SendText(ctx, "服务不可用", msgbot.WithAtAll())
+```
+
+`Kind` 与发送方法一一对应：`KindText` 读 `Text`，`KindMarkdown` 读 `Title`/`Content`，`KindRichText` 读 `RichText`，`KindImage` 读 `Image`；`Options` 始终非 nil。构造函数返回错误会使本次发送立即失败且不重试（归类为 `KindValidation`），所以对不支持的类型直接返回错误即可。
+
+`Platform()` 返回 `msgbot.PlatformWebhook`，该平台不参与业务错误码的重试判定（通用端点没有公认的限流码语义）；HTTP 层的 408/425/429/5xx 与 `Retry-After` 照常生效。需要在一个 `Manager` 里放多个端点时，用 `NewNamedManager` 按名字注册。
 
 ## @ 提醒语义
 

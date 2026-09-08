@@ -106,7 +106,7 @@ func TestApp_SendTextMessageValidation(t *testing.T) {
 		text    string
 		wantErr string
 	}{
-		{name: "empty open_id", text: "hello", wantErr: "open_id is required"},
+		{name: "empty receive_id", text: "hello", wantErr: "receive_id is required"},
 		{name: "empty text", openID: "ou_xxx", wantErr: "text content is empty"},
 	}
 
@@ -181,7 +181,7 @@ func TestApp_SendImageMessageValidation(t *testing.T) {
 		path    string
 		wantErr string
 	}{
-		{name: "empty open_id", path: "image.png", wantErr: "open_id is required"},
+		{name: "empty receive_id", path: "image.png", wantErr: "receive_id is required"},
 		{name: "empty path", openID: "ou_xxx", wantErr: "image path is required"},
 	}
 
