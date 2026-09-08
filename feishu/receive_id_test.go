@@ -238,7 +238,11 @@ func TestWebhookSendImageFromFileHonoursSwitch(t *testing.T) {
 		t.Fatalf("muted send must not upload the image, got %d requests", len(rt.requests))
 	}
 	if bot.Stats().TotalSent() != 0 || bot.Stats().TotalError() != 0 {
-		t.Fatal("muted send must not touch stats")
+		t.Fatal("muted is neither success nor failure")
+	}
+	// 恰好一次：前置短路命中后直接返回，不会再经 Config.Send 又计一次。
+	if bot.Stats().TotalMuted() != 1 {
+		t.Fatalf("want muted=1 exactly, got %d", bot.Stats().TotalMuted())
 	}
 
 	gate.Enable()

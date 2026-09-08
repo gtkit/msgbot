@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `Stats` 新增 `TotalMuted()` 与 `IncMuted()`：记录因发送开关关闭而被丢弃的消息数。此前静音时 `Send*` 返回 `nil` 且两个计数都不动，进程内没有任何痕迹，"消息怎么没发出去"无法自查；日志需要调用方先注入 `Logger`（默认为 nil），计数则零配置即生效且机器可读。`TotalSent` / `TotalError` 在静音时仍然不变——静音既不是成功也不是失败，计入任何一侧都会污染成功率。三类计数互斥，一次发送任务只落到其中一个。覆盖三平台 webhook 与通用 webhook（含 `feishu.Webhook.SendImageFromFile` 这条不经过发送收口点的路径）；`feishu.App` 没有 `Stats`，静音后仍无计数。
+
 ## [1.3.0] - 2026-09-08
 
 本版本对标 `github.com/nikoksr/notify` 补齐分发编排层的四项能力，全部为新增，无破坏性变更，`go.mod` 仍无任何第三方依赖。

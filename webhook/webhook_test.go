@@ -207,8 +207,9 @@ func TestSendPostsJSONPayload(t *testing.T) {
 	if got := decode(t, req.body)["msg"]; got != "hi" {
 		t.Fatalf("want payload msg=hi, got %v", got)
 	}
-	if hook.Stats().TotalSent() != 1 || hook.Stats().TotalError() != 0 {
-		t.Fatalf("want sent=1 error=0, got sent=%d error=%d", hook.Stats().TotalSent(), hook.Stats().TotalError())
+	if hook.Stats().TotalSent() != 1 || hook.Stats().TotalError() != 0 || hook.Stats().TotalMuted() != 0 {
+		t.Fatalf("want sent=1 error=0 muted=0, got sent=%d error=%d muted=%d",
+			hook.Stats().TotalSent(), hook.Stats().TotalError(), hook.Stats().TotalMuted())
 	}
 }
 
@@ -343,8 +344,9 @@ func TestBuilderErrorIsValidationAndNotRetried(t *testing.T) {
 	if tr.calls.Load() != 0 {
 		t.Fatalf("a builder rejection must not reach the transport, got %d calls", tr.calls.Load())
 	}
-	if hook.Stats().TotalError() != 1 || hook.Stats().TotalSent() != 0 {
-		t.Fatalf("want sent=0 error=1, got sent=%d error=%d", hook.Stats().TotalSent(), hook.Stats().TotalError())
+	if hook.Stats().TotalError() != 1 || hook.Stats().TotalSent() != 0 || hook.Stats().TotalMuted() != 0 {
+		t.Fatalf("want sent=0 error=1 muted=0, got sent=%d error=%d muted=%d",
+			hook.Stats().TotalSent(), hook.Stats().TotalError(), hook.Stats().TotalMuted())
 	}
 	// 原因不应被打印两遍。
 	if n := strings.Count(err.Error(), sentinel.Error()); n != 1 {
@@ -478,7 +480,10 @@ func TestSwitchMutesWebhook(t *testing.T) {
 		t.Fatalf("muted send must not reach the transport, got %d calls", tr.calls.Load())
 	}
 	if hook.Stats().TotalSent() != 0 || hook.Stats().TotalError() != 0 {
-		t.Fatal("muted send must not touch stats")
+		t.Fatal("muted is neither success nor failure")
+	}
+	if hook.Stats().TotalMuted() != 1 {
+		t.Fatalf("want muted=1, got %d", hook.Stats().TotalMuted())
 	}
 
 	gate.Enable()

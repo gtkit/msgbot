@@ -236,9 +236,14 @@ func (r *Response) Err() error {
 
 // Stats 使用 atomic 操作跟踪 provider 级别的指标，
 // 实现无锁、并发安全的访问，且不带任何 mutex 开销。
+//
+// 三类计数互斥，一次发送任务只会落到其中一个：成功计 sent，失败计 error，
+// 被开关静音计 muted。静音既不算成功也不算失败，因此不会污染由
+// sent/error 算出的成功率。
 type Stats struct {
 	totalSent  atomic.Int64
 	totalError atomic.Int64
+	totalMuted atomic.Int64
 }
 
 // IncSent 以 atomic 方式递增成功发送计数器。
@@ -247,8 +252,16 @@ func (s *Stats) IncSent() { s.totalSent.Add(1) }
 // IncError 以 atomic 方式递增错误计数器。
 func (s *Stats) IncError() { s.totalError.Add(1) }
 
+// IncMuted 以 atomic 方式递增静音计数器。
+func (s *Stats) IncMuted() { s.totalMuted.Add(1) }
+
 // TotalSent 返回成功发送的消息总数。
 func (s *Stats) TotalSent() int64 { return s.totalSent.Load() }
 
 // TotalError 返回发送失败的消息总数（按发送任务计，重试多次仅计一次）。
 func (s *Stats) TotalError() int64 { return s.totalError.Load() }
+
+// TotalMuted 返回因发送开关关闭而被丢弃的消息总数（按发送任务计）。
+// 它是静音期间唯一无需任何配置即可读取的痕迹——静音时 Send* 返回 nil，
+// 在调用点与成功无法区分，而 sent/error 两个计数都不会变动。
+func (s *Stats) TotalMuted() int64 { return s.totalMuted.Load() }

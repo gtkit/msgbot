@@ -140,7 +140,10 @@ func UploadImageFromReader(ctx context.Context, tenantAccessToken, filename stri
 func (w *Webhook) SendImageFromFile(ctx context.Context, tenantAccessToken, path string) error {
 	// 上传本身是一次真实的飞书 API 调用，发生在 SendImage 之前，因此静音必须在
 	// 这里就提前返回——只靠 Config.Send 的收口点检查会让「已停发」状态仍打飞书。
+	// 这条路径不经过收口点，muted 计数因此要在这里自己记，否则它是唯一无痕迹的
+	// 静默丢弃；命中后直接返回，不会再进 Config.Send，所以不存在重复计数。
 	if w.cfg.Muted() {
+		w.stats.IncMuted()
 		w.cfg.LogDebug(ctx, "feishu: muted by switch, image upload skipped")
 		return nil
 	}

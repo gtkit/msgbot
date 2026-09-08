@@ -312,7 +312,7 @@ func dingtalkDemo() {
 | `SendImage` | `(ctx, img *ImageMessage) error` | 发送图片；各平台所需字段不同（见下） |
 | `Platform` | `() Platform` | 返回平台标识（`feishu`/`wecom`/`dingtalk`/`webhook`） |
 
-> 关于 `Stats`：三平台的 `*Webhook` 与 `webhook.Webhook` 还各自提供 `Stats() *msgbot.Stats`（返回 `TotalSent` / `TotalError` 两个进程内累计计数，按「发送任务」计而非每次重试尝试）。但它**不是 `msgbot.Provider` 接口的方法**——需通过具体类型（如 `*feishu.Webhook`）访问，用 `msgbot.Provider` 变量持有时无法调用。
+> 关于 `Stats`：三平台的 `*Webhook` 与 `webhook.Webhook` 还各自提供 `Stats() *msgbot.Stats`（返回 `TotalSent` / `TotalError` / `TotalMuted` 三个进程内累计计数，按「发送任务」计而非每次重试尝试；三者互斥，见「发送开关」）。但它**不是 `msgbot.Provider` 接口的方法**——需通过具体类型（如 `*feishu.Webhook`）访问，用 `msgbot.Provider` 变量持有时无法调用。
 
 发送选项（`msgbot` 包）：
 
@@ -492,7 +492,7 @@ _ = multi.SendText(ctx, "演练通知")
 
 ## 发送开关
 
-`Config.Switch` 是一个可在运行期翻转的发送开关，用于本地开发、压测与故障降级。关闭期间 `Send*` 直接返回 `nil`：不发出请求、不计入 `Stats`，并记一条 debug 日志（配了 `Logger` 时）说明消息被静音。
+`Config.Switch` 是一个可在运行期翻转的发送开关，用于本地开发、压测与故障降级。关闭期间 `Send*` 直接返回 `nil`：不发出请求，`TotalSent` / `TotalError` 都不变动，但会计入 `Stats.TotalMuted()`；同时记一条 debug 日志（仅在配了 `Logger` 时）。
 
 ```go
 gate := msgbot.NewSwitch() // 创建即启用
@@ -527,7 +527,15 @@ app, err := feishu.NewAppWithConfig(feishu.AppConfig{
 
 静音期间 App 的 `Send*` 在参数校验通过后直接返回 nil：不解析 token、不上传图片、不发请求。**参数校验优先于静音**——静音是运维开关，不该把写错的调用一起吞掉，否则要等恢复发送才暴露。
 
-因为静音时返回的是 `nil`，它是运维开关而不是错误注入手段：需要在静音期间感知「消息被丢弃」时，看 debug 日志或 `Stats`（两个计数都不增长）。
+因为静音时返回的是 `nil`，它是运维开关而不是错误注入手段。静音期间要感知「消息被丢弃」，读 `Stats.TotalMuted()`：
+
+```go
+fs.Stats().TotalMuted() // 因开关关闭而被丢弃的消息数
+```
+
+三类计数互斥，一次发送任务只落到其中一个——成功计 `TotalSent`、失败计 `TotalError`、静音计 `TotalMuted`。静音因此不会污染由 sent/error 算出的成功率。相比 debug 日志，它零配置即生效（不必注入 `Logger`）且机器可读。
+
+飞书应用消息（`feishu.App`）虽然同样受开关控制，但它没有 `Stats`，静音后不会留下计数；那条路径的可观测信号只有返回的 `nil`。
 
 ## 通用 webhook
 

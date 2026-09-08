@@ -57,8 +57,9 @@ func TestConfigMuted(t *testing.T) {
 	}
 }
 
-// TestSendMutedDropsMessage 是「静音时不发请求、不计数」这一契约的反证测试：
-// 移除 Config.Send 开头的静音短路，transport 会被调用、stats 会增长，测试即失败。
+// TestSendMutedDropsMessage 是「静音时不发请求、只计 muted」这一契约的反证测试：
+// 移除 Config.Send 开头的静音短路，transport 会被调用、sent 会增长；
+// 移除其中的 IncMuted，muted 会停在 0。两种情况测试都失败。
 func TestSendMutedDropsMessage(t *testing.T) {
 	t.Parallel()
 
@@ -77,7 +78,10 @@ func TestSendMutedDropsMessage(t *testing.T) {
 		t.Fatalf("muted send must not reach the transport, got %d calls", tr.calls)
 	}
 	if stats.TotalSent() != 0 || stats.TotalError() != 0 {
-		t.Fatalf("muted send must not touch stats, got sent=%d error=%d", stats.TotalSent(), stats.TotalError())
+		t.Fatalf("muted is neither success nor failure, got sent=%d error=%d", stats.TotalSent(), stats.TotalError())
+	}
+	if stats.TotalMuted() != 1 {
+		t.Fatalf("muted send must leave a countable trace, got muted=%d", stats.TotalMuted())
 	}
 	if logger.debug == 0 {
 		t.Fatal("muted send must leave a debug log so the drop is diagnosable")
@@ -134,8 +138,9 @@ func TestSendResumesAfterEnable(t *testing.T) {
 	if tr.calls != 2 {
 		t.Fatalf("want 2 transport calls (muted one skipped), got %d", tr.calls)
 	}
-	if stats.TotalSent() != 2 || stats.TotalError() != 0 {
-		t.Fatalf("want sent=2 error=0, got sent=%d error=%d", stats.TotalSent(), stats.TotalError())
+	if stats.TotalSent() != 2 || stats.TotalError() != 0 || stats.TotalMuted() != 1 {
+		t.Fatalf("want sent=2 error=0 muted=1, got sent=%d error=%d muted=%d",
+			stats.TotalSent(), stats.TotalError(), stats.TotalMuted())
 	}
 }
 
@@ -189,4 +194,83 @@ func TestSwitchConcurrentUse(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+// TestMutedStatsCounting 覆盖 muted 计数的三条语义：多次累加、与 sent/error
+// 互斥、开关翻转后的计数序列。
+func TestMutedStatsCounting(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accumulates", func(t *testing.T) {
+		t.Parallel()
+
+		tr := &scriptedTransport{steps: []scriptedStep{{status: 200, body: `{"errcode":0}`}}}
+		cfg := newSendConfig(tr, RetryPolicy{})
+		cfg.Switch = NewSwitch()
+		cfg.Switch.Disable()
+
+		var stats Stats
+		for range 3 {
+			if err := cfg.Send(context.Background(), &stats, PlatformWeCom, "SendText", okBuild); err != nil {
+				t.Fatalf("muted send: %v", err)
+			}
+		}
+		if stats.TotalMuted() != 3 {
+			t.Fatalf("want muted=3, got %d", stats.TotalMuted())
+		}
+		if stats.TotalSent() != 0 || stats.TotalError() != 0 {
+			t.Fatalf("want sent=0 error=0, got sent=%d error=%d", stats.TotalSent(), stats.TotalError())
+		}
+	})
+
+	t.Run("failure does not count as muted", func(t *testing.T) {
+		t.Parallel()
+
+		tr := &scriptedTransport{steps: []scriptedStep{{status: 200, body: `{"errcode":40001,"errmsg":"bad"}`}}}
+		cfg := newSendConfig(tr, RetryPolicy{})
+		cfg.Switch = NewSwitch()
+
+		var stats Stats
+		if err := cfg.Send(context.Background(), &stats, PlatformWeCom, "SendText", okBuild); err == nil {
+			t.Fatal("expected a platform error")
+		}
+		if stats.TotalError() != 1 || stats.TotalMuted() != 0 {
+			t.Fatalf("want error=1 muted=0, got error=%d muted=%d", stats.TotalError(), stats.TotalMuted())
+		}
+	})
+
+	// 静音按发送任务计，与 sent/error 的粒度一致：开启重试也只计一次。
+	t.Run("retry does not multiply the count", func(t *testing.T) {
+		t.Parallel()
+
+		tr := &scriptedTransport{steps: []scriptedStep{{status: 200, body: `{"errcode":0}`}}}
+		cfg := newSendConfig(tr, RetryPolicy{MaxRetries: 3, InitialDelay: fastRetry})
+		cfg.Switch = NewSwitch()
+		cfg.Switch.Disable()
+
+		var stats Stats
+		if err := cfg.Send(context.Background(), &stats, PlatformWeCom, "SendText", okBuild); err != nil {
+			t.Fatalf("muted send: %v", err)
+		}
+		if stats.TotalMuted() != 1 {
+			t.Fatalf("want muted=1, got %d", stats.TotalMuted())
+		}
+	})
+
+	// nil Stats 是扩展 API 的合法用法，静音路径不能成为唯一会 panic 的分支。
+	t.Run("nil stats does not panic", func(t *testing.T) {
+		t.Parallel()
+
+		tr := &scriptedTransport{steps: []scriptedStep{{status: 200, body: `{"errcode":0}`}}}
+		cfg := newSendConfig(tr, RetryPolicy{})
+		cfg.Switch = NewSwitch()
+		cfg.Switch.Disable()
+
+		if err := cfg.Send(context.Background(), nil, PlatformWeCom, "SendText", okBuild); err != nil {
+			t.Fatalf("muted send with nil stats: %v", err)
+		}
+		if tr.calls != 0 {
+			t.Fatalf("want no transport call, got %d", tr.calls)
+		}
+	})
 }

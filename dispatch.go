@@ -32,8 +32,13 @@ type BuildRequest func() (url string, payload any, err error)
 // Send* 方法，而非直接调用 Send。
 func (c *Config) Send(ctx context.Context, stats *Stats, platform Platform, op string, build BuildRequest) error {
 	// Switch 静音：这是全部 webhook 发送的唯一收口点，因此在这里短路即可覆盖
-	// 三个平台的所有消息类型。既不成功也不失败，故两侧计数都不动。
+	// 三个平台的所有消息类型。既不成功也不失败，故 sent/error 都不动，
+	// 单独计入 muted——否则静音就是一条完全无痕迹的静默丢弃。
+	// 计数放在日志之前，使它不依赖日志分支是否被执行。
 	if c.Muted() {
+		if stats != nil {
+			stats.IncMuted()
+		}
 		c.LogDebug(ctx, string(platform)+": muted by switch, message dropped", "op", op)
 		return nil
 	}
